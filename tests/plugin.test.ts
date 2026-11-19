@@ -13,6 +13,7 @@ function fixture()
     const texts = new Map([[source.path, content]]);
     const state = new Map<string, unknown>();
     let failCreate = false;
+    let failProcess = false;
     const events = new Map<string, (...args: unknown[]) => void>();
     const app = {
         loadLocalStorage: (key: string) => structuredClone(state.get(key) ?? null),
@@ -21,6 +22,13 @@ function fixture()
             getAbstractFileByPath: (path: string) => files.get(path) ?? null,
             getMarkdownFiles: () => [...files.values()].filter(file => file instanceof TFile),
             read: async (file: TFile) => texts.get(file.path)!,
+            process: async (file: TFile, update: (text: string) => string) =>
+            {
+                if (failProcess) throw Error('disk unavailable');
+                const text = update(texts.get(file.path)!);
+                texts.set(file.path, text);
+                return text;
+            },
             createFolder: async (path: string) =>
             {
                 files.set(path, new TFolder(path));
@@ -34,7 +42,11 @@ function fixture()
             },
             on: (name: string, callback: (...args: unknown[]) => void) =>
             {
-                events.set(name, callback);
+                const previous = events.get(name);
+                events.set(name, (...args) =>
+                {
+                    previous?.(...args); callback(...args);
+                });
             }
         },
         metadataCache: {
@@ -53,17 +65,25 @@ function fixture()
         }
     };
     return {
-        app: app as unknown as App, source: source as unknown as ObsidianFile, texts, content, files, events,
+        app: app as unknown as App, source: source as unknown as ObsidianFile, texts, content, files, events, state,
         plugin: () => new TrackRecord(app as unknown as App, {} as PluginManifest),
         setFailure: (value: boolean) =>
         {
             failCreate = value;
+        },
+        setProcessFailure: (value: boolean) =>
+        {
+            failProcess = value;
         }
     };
 }
 
 // Exercise real plugin commands against the Obsidian boundary, without pretending to test its UI renderer.
-(globalThis as unknown as { window: unknown }).window = { setInterval: () => 0 };
+(globalThis as unknown as { window: unknown }).window = {
+    setInterval: () => 0, setTimeout: () => 0, clearTimeout: () =>
+    {
+    }
+};
 
 test('load and explicit time/status writes never edit the source note', async () =>
 {
@@ -89,7 +109,7 @@ test('timer resolves a note renamed while active and preserves the source conten
     const plugin = f.plugin();
     await plugin.onload();
     await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'status', '2026-11-19T08:00:00+01:00', '', 'active', ''));
-    plugin.timer.start(await plugin.subject(f.source), '2026-11-19T09:00:00+01:00', plugin.settings, crypto.randomUUID());
+    await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'time', '2026-11-19T09:00:00+01:00', '', '', '', true));
     const oldPath = f.source.path;
     f.source.path = 'notes/Renamed.md';
     f.files.delete(oldPath);
@@ -102,7 +122,7 @@ test('timer resolves a note renamed while active and preserves the source conten
         if (path !== f.source.path) f.texts.set(path, text.replace('[[notes/Example]]', '[[notes/Renamed]]'));
     }
     await plugin.stopTimer();
-    assert.equal(plugin.timer.get(), null);
+    assert.equal(plugin.currentTimer(), null);
     const records = (await plugin.snapshot()).records;
     assert.equal(records.length, 2);
     assert.ok(records.every(record => record.subject.path === f.source.path));
@@ -115,16 +135,17 @@ test('starting a timer closes the previous local timer at exactly the new start 
     const plugin = f.plugin();
     await plugin.onload();
     const previous = await plugin.subject(f.source);
-    plugin.timer.start(previous, '2026-11-19T08:00:00+01:00', plugin.settings, crypto.randomUUID());
+    await plugin.saveEntry(plugin.newEntry(previous, 'time', '2026-11-19T08:00:00+01:00', '', '', '', true));
     const next = new TFile('notes/Other.md');
     f.files.set(next.path, next);
     f.texts.set(next.path, '---\nid: subject-2\n---\n');
     await plugin.startTimer({ path: next.path, id: 'subject-2' });
     const snapshot = await plugin.snapshot();
-    assert.equal(snapshot.records.length, 1);
-    assert.equal(snapshot.records[0].subject.path, previous.path);
-    assert.equal(snapshot.records[0].end, plugin.timer.get()!.start);
-    assert.equal(plugin.timer.get()!.subject.path, next.path);
+    assert.equal(snapshot.records.length, 2);
+    const closed = snapshot.records.find(record => record.end)!;
+    assert.equal(closed.subject.path, previous.path);
+    assert.equal(closed.end, plugin.currentTimer()!.start);
+    assert.equal(plugin.currentTimer()!.subject.path, next.path);
 });
 
 test('failed automatic stop prevents starting the replacement timer', async () =>
@@ -133,12 +154,14 @@ test('failed automatic stop prevents starting the replacement timer', async () =
     const plugin = f.plugin();
     await plugin.onload();
     const subject = await plugin.subject(f.source);
-    plugin.timer.start(subject, '2026-11-19T08:00:00+01:00', plugin.settings, crypto.randomUUID());
-    const id = plugin.timer.get()!.id;
-    f.setFailure(true);
+    await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T08:00:00+01:00', '', '', '', true));
+    await plugin.snapshot();
+    const id = plugin.currentTimer()!.id;
+    f.setProcessFailure(true);
     await assert.rejects(plugin.startTimer(subject), /disk unavailable/);
-    assert.equal(plugin.timer.get()!.id, id);
-    assert.ok(plugin.timer.get()!.pending);
+    assert.equal(plugin.currentTimer()!.id, id);
+    assert.equal((await plugin.snapshot()).records.length, 1);
+    assert.equal(plugin.currentTimer()!.end, undefined);
 });
 
 test('settings retain older property profiles outside Markdown records', async () =>
@@ -252,6 +275,80 @@ test('invalid saved settings pause commands instead of silently writing with def
     (plugin as unknown as MockPlugin).data = { folder: '../bad' };
     await plugin.onload();
     await plugin.run(async () => plugin.startTimer());
-    assert.equal(plugin.timer.get(), null);
+    assert.equal(plugin.currentTimer(), null);
     assert.ok(notices.some(notice => notice.includes('Save valid Track Record settings')));
+});
+
+test('running timers survive reload through Markdown; only the device name is saved locally', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    plugin.saveDeviceName('Desktop');
+    await plugin.startTimer();
+    const active = plugin.currentTimer()!;
+    assert.ok(active.path);
+    assert.match(f.texts.get(active.path!)!, /device: Desktop/);
+    assert.deepEqual([...f.state.keys()], ['track-record:device-name:v1']);
+    const reloaded = f.plugin();
+    await reloaded.onload();
+    await reloaded.snapshot();
+    assert.equal(reloaded.deviceName, 'Desktop');
+    assert.equal(reloaded.currentTimer()!.id, active.id);
+    const when = new Date(Date.parse(active.start) + 1000).toISOString();
+    await reloaded.closeTimers([reloaded.currentTimer()!], when);
+    await reloaded.snapshot();
+    assert.equal(reloaded.currentTimer(), null);
+});
+
+test('Start closes every own open timer and leaves other device timers open by default', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    plugin.saveDeviceName('Desktop');
+    const subject = await plugin.subject(f.source);
+    for (const device of ['Desktop', 'Desktop', 'Phone']) {
+        await plugin.saveEntry({ ...plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true), device });
+    }
+    await plugin.startTimer();
+    const records = (await plugin.snapshot()).records;
+    const closed = records.filter(record => record.end);
+    assert.equal(closed.length, 2);
+    assert.equal(records.filter(record => !record.end && record.device === 'Phone').length, 1);
+    assert.ok(closed.every(record => record.end === plugin.currentTimer()!.start));
+    plugin.settings.resetAllTimersActive = true;
+    // A direct end-time argument keeps this test independent of clock resolution.
+    const next = new Date(Date.parse(plugin.currentTimer()!.start) + 1000).toISOString();
+    await plugin.closeTimers(records.filter(record => !record.end), next);
+    await plugin.snapshot();
+    assert.equal(plugin.activeTimers.length, 0);
+});
+
+test('reset-all setting makes Start close other-device timers too', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    plugin.saveDeviceName('Desktop');
+    await plugin.saveEntry({ ...plugin.newEntry(await plugin.subject(f.source), 'time', '2026-11-19T08:00:00Z', '', '', '', true), device: 'Phone' });
+    plugin.settings.resetAllTimersActive = true;
+    await plugin.startTimer();
+    const records = (await plugin.snapshot()).records;
+    assert.ok(records.find(record => record.device === 'Phone')!.end);
+    assert.equal(records.filter(record => !record.end).length, 1);
+});
+
+test('Start preflights every selected timer before closing any of them', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    for (const start of ['2026-11-19T08:00:00Z', '2099-01-01T08:00:00Z']) {
+        await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'time', start, '', '', '', true));
+    }
+    await assert.rejects(plugin.startTimer(), /End must be after start/);
+    const records = (await plugin.snapshot()).records;
+    assert.equal(records.length, 2);
+    assert.ok(records.every(record => !record.end));
 });

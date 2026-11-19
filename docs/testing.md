@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 35 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
+Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 45 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
 
 Core tests cover YAML round-trips, configurable mappings, invalid dates/offsets, daylight-saving transitions, repeated statuses, equal-time ambiguity, overlaps, duplicate IDs, conflicting destinations, exact retries, interrupted local timers, failed writes and independent device drafts.
 
@@ -27,17 +27,20 @@ Only `main.js`, `manifest.json` and `styles.css` are copied. Enable/reload manua
 3. Add a manual interval with timezone timestamps. Try an end before start and a nonexistent date: the dialog should remain open and show an error. Then save a valid interval with optional text.
 4. Record `active`, `paused`, `active` at increasing effective times. Confirm three separate records. Source `status` remains unchanged. Record two different statuses at the same instant and check the ambiguity warning.
 5. Create overlapping time records, including on different notes. History must withhold totals and show a warning. Correct the intervals in Markdown and refresh. Invalid records must produce visible errors.
-6. Start a timer and disable/re-enable the plugin or close/reopen Obsidian. It should report an interrupted draft. **Recover interrupted timer** requires an actual end time. Cancel recovery, reopen it, then complete it.
+6. Start a timer: an open Markdown record should exist immediately. Disable/re-enable or reopen Obsidian; the timer should be reconstructed from that note and Stop should set its end. For a draft left by an older preview only, use **Recover legacy timer** explicitly.
 7. Rename/move a subject while retaining its string `id`, then stop the timer. Confirm attribution. Without an ID, test a live rename with native link updates; an offline rename can require restoring the old path. Duplicate note IDs should block new recording once indexed.
 8. In settings, use different folders/tags/formats for Timer and Status, then the same folder. Check folder suggestions and filename previews. Use `#record/time` as a tag input and confirm YAML stores `record/time`. Earlier records should remain readable using retained profiles in plugin settings; no prior record is migrated.
 9. Use sidebar Start/Stop for the current note. Switch notes and start another timer: the previous local timer must end at the exact new start time. Check the running clock updates each second and remains visible while browsing another note. Toggling All notes must not change the current-note action target.
 10. Check new filenames use UTC seconds, a short suffix and the configured Timer/Status patterns. New frontmatter must not include `track_record`. Existing 0.1.0 records and pending timer saves should remain readable/recoverable with their original content.
+11. Confirm a device-name suggestion appears once and is editable. Reload after saving a name; it should persist locally, without appearing as a name value in shared plugin settings. Use distinct names on two devices. Changing the local name should not rewrite old records.
+12. Configure nested `timer.device/start/end`, then flat alternatives. Test missing, null, empty and whitespace-only ends. Source notes and Status records must not gain timer/device properties. Add comments, extra YAML fields and body text to an open timer, then Stop: retain them.
+13. Create multiple own and other-device open timers. Default Start/Stop must close only exact owner matches. Enable **Reset all active timers** and confirm Start/Stop close all visible open timers. A future start time or conflicting edit must prevent a new timer from being started. Writes across files can partially finish on an I/O failure; no new timer should then be created.
 
 ## Mobile and synchronization — pending
 
 - Repeat commands, dialogs and recovery on Android; use command palette/ribbon where no status bar is available.
-- Interrupt in the background and terminate/reopen. Choose actual end times explicitly.
-- Run independent timers on two devices, sync closed records in either order and check that both remain present and overlaps are flagged.
+- Interrupt in the background and terminate/reopen. Open records remain authoritative; no shutdown end time is inferred.
+- Run independent timers on two devices, sync open/closed records in either order, check device labels and default ownership filtering. With reset-all enabled, only timers already visible through sync can be closed.
 - Modify a pending destination before retry: content must not be overwritten.
 - Check delayed metadata/link resolution and malformed/conflicting records. The preview cannot capture changes it never observed or guarantee cross-device exactly-once manual submissions.
 

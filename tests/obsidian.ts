@@ -5,6 +5,7 @@ export const stringifyYaml = stringify;
 export const notices: string[] = [];
 export const modals: Modal[] = [];
 export const settings: Setting[] = [];
+export const Platform = { isDesktopApp: false, isAndroidApp: false, isIosApp: false };
 
 export class Element
 {
@@ -152,15 +153,15 @@ export class Control
     inputEl = {};
     text = '';
     disabled = false;
-    change: (value: string) => void = () =>
+    change: (value: any) => void = () =>
     {
     };
     click: () => unknown = () =>
     {
     };
-    setValue(value: string): this
+    setValue(value: string | boolean): this
     {
-        this.text = value; return this;
+        this.text = String(value); return this;
     }
     setPlaceholder(): this
     {
@@ -182,7 +183,7 @@ export class Control
     {
         return this;
     }
-    onChange(callback: (value: string) => void): this
+    onChange(callback: (value: any) => void): this
     {
         this.change = callback; return this;
     }
@@ -216,6 +217,10 @@ export class Setting
         return this.add(callback);
     }
     addButton(callback: (control: Control) => void): this
+    {
+        return this.add(callback);
+    }
+    addToggle(callback: (control: Control) => void): this
     {
         return this.add(callback);
     }

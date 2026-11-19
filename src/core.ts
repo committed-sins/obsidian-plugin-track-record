@@ -1,3 +1,5 @@
+import { parseDocument, Scalar } from 'yaml';
+
 export interface Settings
 {
     timerFolder: string;
@@ -9,14 +11,18 @@ export interface Settings
     subjectProperty: string;
     startProperty: string;
     endProperty: string;
+    deviceProperty: string;
+    statusStartProperty: string;
     statusProperty: string;
+    resetAllTimersActive: boolean;
 }
 
 export const DEFAULTS: Settings = {
     timerFolder: 'records/track-record', statusFolder: 'records/track-record',
     timerFilename: '{type} - {timestamp} - {hash}', statusFilename: '{type} - {timestamp} - {hash}',
     timeTag: 'record/time', statusTag: 'record/status',
-    subjectProperty: 'contexts', startProperty: 'time_start', endProperty: 'time_end', statusProperty: 'status'
+    subjectProperty: 'contexts', startProperty: 'timer.start', endProperty: 'timer.end', deviceProperty: 'timer.device',
+    statusStartProperty: 'time_start', statusProperty: 'status', resetAllTimersActive: false
 };
 
 export interface Subject
@@ -32,12 +38,14 @@ export interface RecordEntry
     subject: Subject;
     start: string;
     end?: string;
+    device?: string;
     status?: string;
     created: string;
     session?: string;
     note: string;
     settings: Settings;
     path?: string;
+    linkPath?: string;
 }
 
 const RESERVED = new Set(['id', 'tags', 'created', 'track_record', '__proto__', 'constructor', 'prototype']);
@@ -48,11 +56,13 @@ export function validateSettings(input: unknown): Settings
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw Error('Invalid record settings.');
     const value = input as Record<string, unknown>;
     const result = { ...DEFAULTS };
-    for (const key of Object.keys(DEFAULTS) as (keyof Settings)[]) {
-        const raw = value[key] ?? ((key === 'timerFolder' || key === 'statusFolder') ? value.folder : undefined) ?? DEFAULTS[key];
+    for (const key of Object.keys(DEFAULTS).filter(key => key !== 'resetAllTimersActive') as (Exclude<keyof Settings, 'resetAllTimersActive'>)[]) {
+        const raw = value[key] ?? ((key === 'timerFolder' || key === 'statusFolder') ? value.folder : key === 'statusStartProperty' ? value.startProperty : undefined) ?? DEFAULTS[key];
         if (typeof raw !== 'string') throw Error(`Invalid setting: ${key}.`);
         result[key] = raw.trim();
     }
+    if (value.resetAllTimersActive !== undefined && typeof value.resetAllTimersActive !== 'boolean') throw Error('Reset all timers must be a boolean.');
+    result.resetAllTimersActive = value.resetAllTimersActive === true;
     for (const folder of [result.timerFolder, result.statusFolder]) {
         if (!folder || folder.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || /[\\:*?"<>|\[\]#^\x00-\x1f]/.test(folder)) throw Error('Use a vault-relative folder without hidden folders, traversal or special characters.');
     }
@@ -67,12 +77,67 @@ export function validateSettings(input: unknown): Settings
         if (/[\\/:*?"<>|\[\]#^\x00-\x1f]/.test(pattern) || pattern.startsWith('.') || /[. ]$/.test(pattern) || /\.md$/i.test(pattern)) throw Error('Enter a filename pattern without a folder or .md extension.');
         if (pattern.length > 140) throw Error('Filename pattern is too long.');
     }
-    const properties = [result.subjectProperty, result.startProperty, result.endProperty, result.statusProperty];
-    for (const property of properties) {
-        if (!/^[A-Za-z][A-Za-z0-9_-]*$/.test(property) || RESERVED.has(property)) throw Error(`Invalid or reserved property: ${property}.`);
+    for (const properties of [[result.subjectProperty, result.startProperty, result.endProperty, result.deviceProperty], [result.subjectProperty, result.statusStartProperty, result.statusProperty]]) {
+        for (const property of properties) propertySegments(property);
+        for (let i = 0; i < properties.length; i++) {
+            if (properties.some((other, j) => i !== j && (properties[i] === other || properties[i].startsWith(other + '.')))) throw Error('Property paths must not overlap or be parents of each other.');
+        }
     }
-    if (new Set(properties).size !== properties.length) throw Error('Record properties must have different names.');
     return result;
+}
+
+export function propertySegments(path: string): string[]
+{
+    const segments = path.split('.');
+    if (segments.some(part => !/^[A-Za-z][A-Za-z0-9_-]*$/.test(part) || ['__proto__', 'constructor', 'prototype'].includes(part)) || RESERVED.has(segments[0])) throw Error(`Invalid or reserved property path: ${path}.`);
+    return segments;
+}
+
+export function getProperty(data: Record<string, unknown>, path: string): unknown
+{
+    let current: unknown = data;
+    for (const part of propertySegments(path)) {
+        if (current === null || current === undefined) return undefined;
+        if (typeof current !== 'object' || Array.isArray(current)) throw Error(`Cannot read nested property ${path}: a parent is not an object.`);
+        current = Object.hasOwn(current, part) ? (current as Record<string, unknown>)[part] : undefined;
+    }
+    return current;
+}
+
+export function setProperty(data: Record<string, unknown>, path: string, value: unknown): void
+{
+    const segments = propertySegments(path);
+    let current = data;
+    for (const part of segments.slice(0, -1)) {
+        if (!Object.hasOwn(current, part)) current[part] = {};
+        const next = current[part];
+        if (!next || typeof next !== 'object' || Array.isArray(next)) throw Error(`Cannot write nested property ${path}: a parent is not an object.`);
+        current = next as Record<string, unknown>;
+    }
+    current[segments.at(-1)!] = value;
+}
+
+export function isOpenEnd(value: unknown): boolean
+{
+    return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
+}
+
+export function validateDeviceName(value: string): string
+{
+    const name = value.trim();
+    if (!name || name.length > 80 || /[\r\n\x00-\x1f]/.test(name)) throw Error('Enter a device name of 1–80 characters without control characters.');
+    return name;
+}
+
+export function suggestDeviceName(hostname: () => string, fallback: string): string
+{
+    try { return validateDeviceName(hostname()); }
+    catch { return validateDeviceName(fallback); }
+}
+
+export function ownedOpenTimers(records: RecordEntry[], device: string, all = false): RecordEntry[]
+{
+    return records.filter(record => record.kind === 'time' && isOpenEnd(record.end) && (all || record.device === device));
 }
 
 export function instant(value: string): number
@@ -113,11 +178,13 @@ export function validateRecord(input: RecordEntry): RecordEntry
     const start = instant(input.start);
     if (typeof input.note !== 'string') throw Error('Invalid record note.');
     if (input.kind === 'time') {
-        if (!input.end || instant(input.end) <= start) throw Error('End must be after start.');
+        if (input.end !== undefined && instant(input.end) <= start) throw Error('End must be after start.');
+        if (input.device !== undefined) validateDeviceName(input.device);
         if (input.status !== undefined) throw Error('A time record cannot contain a status.');
     } else if (input.kind === 'status') {
         if (typeof input.status !== 'string' || !input.status.trim() || input.status.length > 200 || /[\r\n\x00]/.test(input.status)) throw Error('Enter a non-empty status of at most 200 characters.');
         if (input.end !== undefined) throw Error('A status event has no end time.');
+        if (input.device !== undefined) throw Error('Status records have no device property.');
     } else throw Error('Unknown record kind.');
     return input;
 }
@@ -142,11 +209,13 @@ export function frontmatter(entry: RecordEntry): Record<string, unknown>
     const s = entry.settings;
     const result: Record<string, unknown> = {
         id: entry.id, tags: [entry.kind === 'time' ? s.timeTag : s.statusTag], created: entry.created,
-        [s.subjectProperty]: [`[[${entry.subject.path.slice(0, -3)}]]`],
-        [s.startProperty]: entry.start
     };
-    if (entry.kind === 'time') result[s.endProperty] = entry.end;
-    else result[s.statusProperty] = entry.status;
+    setProperty(result, s.subjectProperty, [`[[${entry.subject.path.slice(0, -3)}]]`]);
+    setProperty(result, entry.kind === 'time' ? s.startProperty : s.statusStartProperty, entry.start);
+    if (entry.kind === 'time') {
+        setProperty(result, s.endProperty, entry.end ?? null);
+        if (entry.device !== undefined) setProperty(result, s.deviceProperty, entry.device);
+    } else setProperty(result, s.statusProperty, entry.status);
     return result;
 }
 
@@ -167,9 +236,12 @@ export function parseRecord(text: string, path: string, parseYaml: (yaml: string
             catch { /* Another retained profile can describe an older mapping. */ }
         }
         if (!matches.length) throw Error('Record tag found, but its properties do not match a known record profile.');
-        const signatures = new Set(matches.map(record => JSON.stringify([record.id, record.kind, record.subject.path, record.start, record.end, record.status, record.created])));
+        const score = (record: RecordEntry): number => (record.device === undefined ? 0 : 2) + (record.end === undefined ? 0 : 1);
+        const bestScore = Math.max(...matches.map(score));
+        const best = matches.filter(record => score(record) === bestScore);
+        const signatures = new Set(best.map(record => JSON.stringify([record.id, record.kind, record.subject.path, record.start, record.end, record.device, record.status, record.created])));
         if (signatures.size > 1) throw Error('Record matches conflicting property profiles; review its fields.');
-        return matches[0];
+        return best[0];
     }
     return readRecord(data, text.slice(match[0].length), path, validateSettings(meta.fields), meta);
 }
@@ -188,7 +260,7 @@ function readRecord(data: Record<string, unknown>, note: string, path: string, s
     const time = normalizedTags.includes(settings.timeTag.toLowerCase());
     const status = normalizedTags.includes(settings.statusTag.toLowerCase());
     if (time === status) throw Error('Ambiguous record type tags.');
-    const subjects = data[settings.subjectProperty];
+    const subjects = getProperty(data, settings.subjectProperty);
     if (!Array.isArray(subjects) || subjects.length !== 1 || typeof subjects[0] !== 'string') throw Error('Expected exactly one subject link.');
     const link = /^\[\[([^\[\]#|^]+)\]\]$/.exec(subjects[0]);
     if (!link) throw Error('Invalid subject link.');
@@ -198,9 +270,11 @@ function readRecord(data: Record<string, unknown>, note: string, path: string, s
         if (typeof value !== 'string') throw Error('Expected a string property.');
         return value;
     };
+    const end = time ? getProperty(data, settings.endProperty) : undefined;
+    const device = time ? getProperty(data, settings.deviceProperty) : undefined;
     return validateRecord({
         id: string(data.id), kind: time ? 'time' : 'status', subject: validateSubject({ path: pathValue, ...(meta?.subject_id ? { id: string(meta.subject_id) } : {}) }),
-        start: string(data[settings.startProperty]), ...(time ? { end: string(data[settings.endProperty]) } : { status: string(data[settings.statusProperty]) }),
+        start: string(getProperty(data, time ? settings.startProperty : settings.statusStartProperty)), ...(time ? { ...(isOpenEnd(end) ? {} : { end: string(end) }), ...(isOpenEnd(device) ? {} : { device: string(device) }) } : { status: string(getProperty(data, settings.statusProperty)) }),
         created: string(data.created), ...(meta ? { session: string(meta.session) } : {}), settings, path, note
     });
 }
@@ -213,7 +287,7 @@ export function sameSubject(a: Subject, b: Subject): boolean
 
 export function duration(entry: RecordEntry): number
 {
-    return entry.kind === 'time' ? instant(entry.end!) - instant(entry.start) : 0;
+    return entry.kind === 'time' && entry.end ? instant(entry.end) - instant(entry.start) : 0;
 }
 
 export function historyWarnings(records: RecordEntry[]): string[]
@@ -224,7 +298,7 @@ export function historyWarnings(records: RecordEntry[]): string[]
         if (ids.has(entry.id)) warnings.add(`Duplicate record ID ${entry.id}; totals are withheld.`);
         ids.set(entry.id, entry);
     }
-    const intervals = records.filter(entry => entry.kind === 'time').map(entry => ({ start: instant(entry.start), end: instant(entry.end!) })).sort((a, b) => a.start - b.start);
+    const intervals = records.filter(entry => entry.kind === 'time' && entry.end).map(entry => ({ start: instant(entry.start), end: instant(entry.end!) })).sort((a, b) => a.start - b.start);
     let lastEnd = -Infinity;
     for (const interval of intervals) {
         if (interval.start < lastEnd) warnings.add('Overlapping work intervals; totals are withheld (including simultaneous work on different notes).');
@@ -242,6 +316,26 @@ export function historyWarnings(records: RecordEntry[]): string[]
         else idlessTimes.add(pathKey);
     }
     return [...warnings];
+}
+
+export function closeTimerText(text: string, expected: RecordEntry, end: string, parseYaml: (yaml: string) => unknown, profiles: Settings[]): string
+{
+    const current = parseRecord(text, expected.path!, parseYaml, profiles);
+    if (current.kind !== 'time' || current.id !== expected.id || current.start !== expected.start || current.device !== expected.device || !sameSubject(current.subject, { ...expected.subject, path: expected.linkPath ?? expected.subject.path }) || current.settings.endProperty !== expected.settings.endProperty) throw Error('Timer changed since it was read; refresh before closing it.');
+    if (!isOpenEnd(current.end)) {
+        if (current.end === end) return text;
+        throw Error('Timer was already closed with a different end time.');
+    }
+    if (instant(end) <= instant(current.start)) throw Error('End must be after start; timer was left open.');
+    const match = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text)!;
+    const document = parseDocument(match[1], { uniqueKeys: true });
+    if (document.errors.length) throw Error('Invalid timer YAML; no changes made.');
+    const value = new Scalar(end);
+    value.type = Scalar.QUOTE_DOUBLE;
+    document.setIn(propertySegments(current.settings.endProperty), value);
+    const eol = text.includes('\r\n') ? '\r\n' : '\n';
+    const header = document.toString({ lineWidth: 0 }).replace(/\n/g, eol);
+    return `---${eol}${header}---${text.slice(match[0].length - (match[0].endsWith('\r\n') ? 2 : match[0].endsWith('\n') ? 1 : 0))}`;
 }
 
 export interface Writer

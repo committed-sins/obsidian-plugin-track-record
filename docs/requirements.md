@@ -1,6 +1,6 @@
 # Requirements
 
-Preview 0.1.1 implements manual records without private metadata blocks, separate Timer/Status settings and naming formats, one local timer with automatic close-on-switch, interrupted-save recovery and current-note sidebar actions. Decisions and limits are recorded in [architecture](architecture.md); automated and manual validation are distinguished in [testing](testing.md). Requirements below also describe later work.
+Preview 0.1.2 implements manual/open timer records without private metadata blocks, a local device-name suggestion, nested/flat property mappings, per-device or optional all-device closure, separate Timer/Status settings and current-note sidebar actions. Timer state is reconstructed from Markdown rather than saved locally. Older preview drafts remain explicitly recoverable. Decisions and limits are recorded in [architecture](architecture.md); automated and manual validation are distinguished in [testing](testing.md). Requirements below also describe later work.
 
 ## Confirmed direction
 
@@ -36,7 +36,7 @@ Build an independent Obsidian plugin named **Track Record**, with the subtitle *
 ## Compatibility and write safety
 
 - Target desktop and mobile using supported Obsidian APIs. Compatibility remains unverified until tested.
-- Avoid multiple devices updating a shared timer or mutable aggregate file. Separate per-device/session state from shared records.
+- By default, close only timer records whose device matches the local name. An explicit reset-all option may close other-device records visible in the vault. Never write a shared aggregate timer-state file.
 - Do not silently pick a winner for conflicting records or simultaneous status transitions.
 - Handle note and record synchronization arriving in either order.
 - Use guarded writes and preserve user edits; avoid event feedback loops with other metadata plugins.

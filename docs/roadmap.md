@@ -25,6 +25,16 @@
 - [x] Close the previous timer on this device when starting a replacement, blocking replacement on save failure.
 - [x] Extend coverage to 35 tests, including upgrade recovery and sidebar controls.
 
+## Preview 0.1.2 device and open-record model
+
+- [x] Suggest and store only a device-local name; keep it separate from synchronized plugin settings.
+- [x] Support nested/flat property paths, defaulting to timer.device/start/end; Status remains device-independent.
+- [x] Write open timer notes at Start and reconstruct active timers from them after reload.
+- [x] Select missing/null/empty end fields by device name or explicit reset-all toggle; preflight and guard every end-field write.
+- [x] Preserve YAML comments, unrelated fields and bodies while closing records.
+- [x] Retain explicit legacy local-draft recovery without creating new local timer state.
+- [x] Extend automated coverage to 45 tests.
+
 ## 2. Status capture and history
 
 - [x] Add explicit status-record commands and a note history view; source-note projection remains deferred.

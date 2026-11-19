@@ -8,7 +8,7 @@ if (manifest.id !== 'track-record' || manifest.version !== pkg.version || versio
 await mkdir('dist', { recursive: true });
 await build({
     entryPoints: ['src/main.ts'], outfile: 'dist/main.js', bundle: true,
-    external: ['obsidian'], platform: 'browser', format: 'cjs', target: 'es2022',
+    external: ['obsidian', 'node:os'], platform: 'browser', format: 'cjs', target: 'es2022',
     banner: { js: '/* Track Record — MIT — Michael J. Stallinger / Committed Sins */' }
 });
 for (const name of ['manifest.json', 'styles.css']) await copyFile(name, `dist/${name}`);

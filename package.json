@@ -1,10 +1,11 @@
 {
   "name": "obsidian-plugin-track-record",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "description": "Time tracking & status history for your notes.",
   "license": "MIT",
+  "dependencies": { "yaml": "2.9.1" },
   "author": "Michael J. Stallinger",
   "engines": { "node": ">=22" },
   "scripts": {
@@ -20,7 +21,6 @@
     "@types/node": "^24.0.0",
     "esbuild": "0.28.2",
     "obsidian": "1.14.4",
-    "typescript": "^5.9.0",
-    "yaml": "2.9.1"
+    "typescript": "^5.9.0"
   }
 }

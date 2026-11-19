@@ -1,17 +1,19 @@
 # Data model and architecture
 
-## Preview 0.1.1 decisions
+## Preview 0.1.2 decisions
 
-- One Markdown file per completed interval or explicit status event. Timer and Status each have a configurable folder (both default to `records/track-record`) and filename pattern (`{type} - {timestamp} - {hash}`). UTC timestamps use seconds and filename-safe time separators; six-character UUID prefixes expand on collisions.
+- One Markdown file per open or completed interval or explicit status event. Timer and Status each have a configurable folder (both default to `records/track-record`) and filename pattern (`{type} - {timestamp} - {hash}`). UTC timestamps use seconds and filename-safe time separators; six-character UUID prefixes expand on collisions.
 - Classify record types by configurable, case-insensitive tags, independently of storage folders. New notes contain no `track_record` block. Retain older mapping profiles in plugin settings and use those to read older plain records. Read existing 0.1.0 envelopes for compatibility without modifying them.
 - Use a single full-path wikilink in the configured subject property. Reject unsupported wikilink path characters instead of guessing. Existing string note IDs are read, never assigned or changed.
-- One timer per vault and device. Use public `App.loadLocalStorage` / `saveLocalStorage` for its draft, not synchronized `data.json`. The timer does not write an open interval note. Explicit stop creates a closed interval.
-- Store pending timer payload, UUID and destination locally before asynchronous creation. Exact retries succeed; conflicting content is never overwritten. Preserve pending intent if saving or clearing local state fails.
-- Reload/shutdown never infers an end time. Recovery asks for an explicit actual end time. Deliberately starting another timer closes the previous local draft at the new start instant, including an interrupted draft; pending saves first retry their original payload. Other devices are not stopped. Sleep/idle time is not automatically subtracted.
+- Only the device name is new device-local persistent state (`App.loadLocalStorage` / `saveLocalStorage`). Suggest a desktop hostname once, otherwise a platform label with a random suffix; never synchronize the name through `data.json`.
+- Running timers are notes with a matching device and an absent/null/empty end field. Default paths are `timer.device`, `timer.start`, `timer.end`. Dot-separated paths create nested mappings; flat paths remain valid. Status has separate start/value mappings and no device. Reserved keys, ancestor/descendant collisions and scalar parents are rejected.
+- Start/Stop re-read the vault and use exact device-name equality, or include all devices when `resetAllTimersActive` is enabled. Start closes selected open timers before creating the replacement at the same instant. No durable active-timer list or session marker is needed. Reload leaves notes open, and sleep/idle time is not subtracted.
+- Preflight every selected timer before the first write. Each `Vault.process` callback reparses fresh content and checks ID, subject, device, start and field mapping before setting the end through a YAML document AST. Preserve body, comments and unrelated fields. Cross-file writes are not atomic; partial closure on I/O failure is visible and prevents a replacement start.
+- The old local-draft reader remains only for explicit recovery/discard of 0.1.0/0.1.1 state. It is not used for new timer tracking. Legacy pending saves keep their exact original path/content.
 - Status capture is command-only: a user-asserted effective timestamp, resulting status and creation timestamp. Repeated statuses are retained. No source-status projection, observer or previous-status inference yet.
 - History scans configured/current and retained-profile folders, matching tags and legacy metadata-cache markers. Subject relationships in new records are resolved exclusively from wikilinks. The sidebar keeps current-note actions separate from a running-timer card and the note/all-note history scope. Clock ticks do not trigger record rescans. Refresh after external edits/sync. Persistent indexes and project aggregation are not yet implemented.
 - Overlaps across work records, duplicate IDs and invalid records withhold totals. Equal-time status events are flagged, not resolved. No implicit union of overlaps or causal ordering by UUID.
-- Only newly created records are written. No source-note writes, migrations, automatic activation, network access or release creation.
+- Write new records and explicitly close existing open timer records. No source-note writes, automatic migrations/activation, network access or release creation.
 
 ## Record storage
 
@@ -26,8 +28,10 @@ tags:
   - record/time
 contexts:
   - "[[Example note]]"
-time_start: 2026-11-18T09:00:00+01:00
-time_end: 2026-11-18T09:45:00+01:00
+timer:
+  device: My desktop
+  start: "2026-11-18T09:00:00+01:00"
+  end: "2026-11-18T09:45:00+01:00"
 ---
 ```
 
@@ -45,7 +49,7 @@ status: ongoing
 ---
 ```
 
-Work records require an end after start; unfinished intervals exist only as local timer drafts. Status events have no end or previous-status field. Ambiguous tags, conflicting retained profiles and invalid timestamps are refused rather than repaired. Edit properties/text directly and refresh afterward; retain record IDs and subject links. Legacy envelope versions other than version 1 remain unsupported. Pending 0.1.0 timer saves retain their exact original destination and content rather than adopting new names halfway through a write.
+Closed intervals require an end after start; open intervals omit the end or leave it null/empty. Status has no device, end or previous-status field. Ambiguous tags, conflicting retained profiles and invalid timestamps are refused rather than repaired. Edit properties/text directly; retain IDs and subject links. Existing customized mappings are respected rather than silently migrated. Old plain `time_start`/`time_end` records have a compatibility profile. When a populated device/end mapping distinguishes a profile from one with only missing fields, use the populated profile; genuinely conflicting populated profiles still fail. Legacy envelope versions other than version 1 remain unsupported.
 
 ## Responsibilities
 
@@ -54,7 +58,7 @@ Work records require an end after start; unfinished intervals exist only as loca
 | Commands and UI | Start/stop, manual entries, status changes and explicit corrections. |
 | Record service | Validation, stable IDs, guarded Markdown writes and record lifecycle. |
 | Optional status observer | Detect configured property changes using an explicit capture policy. |
-| Local session state | Device-local timer recovery; no shared mutable timer across devices. |
+| Local device name | Device-local owner label; open Markdown notes are the source of timer state. |
 | Record index | Rebuildable cache of records and subjects; source records remain authoritative. |
 | Bases / Bases Excerpts | Read-only selection, relations and aggregation; no record creation in formulas. |
 

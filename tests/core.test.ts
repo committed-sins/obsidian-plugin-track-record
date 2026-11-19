@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, stringify } from 'yaml';
-import { DEFAULTS, Timer, chooseRecordPath, createOnce, duration, frontmatter, historyWarnings, instant, localTimestamp, parseRecord, recordPath, sameSubject, timerDraft, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
+import { DEFAULTS, Timer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, getProperty, historyWarnings, instant, isOpenEnd, localTimestamp, ownedOpenTimers, parseRecord, recordPath, sameSubject, setProperty, suggestDeviceName, timerDraft, validateDeviceName, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
 
 const A = '00000000-0000-4000-8000-000000000001';
 const B = '00000000-0000-4000-8000-000000000002';
@@ -78,7 +78,7 @@ test('custom mappings are read through profiles kept in plugin settings', () =>
 test('invalid folder, reserved fields, duplicate mappings and tags are rejected', () =>
 {
     for (const timerFolder of ['../records', '/records', '.obsidian/records', 'records//time', 'C:/records', 'records\\time']) assert.throws(() => validateSettings({ ...DEFAULTS, timerFolder }));
-    for (const startProperty of ['id', 'tags', 'created', '__proto__', 'track_record', 'time_end']) assert.throws(() => validateSettings({ ...DEFAULTS, startProperty }));
+    for (const startProperty of ['id', 'tags', 'created', '__proto__', 'track_record', 'timer.end', 'timer']) assert.throws(() => validateSettings({ ...DEFAULTS, startProperty }));
     assert.equal(validateSettings({ ...DEFAULTS, timeTag: '#time' }).timeTag, 'time');
     assert.throws(() => validateSettings({ ...DEFAULTS, timeTag: DEFAULTS.statusTag }));
     assert.throws(() => validateSettings({ ...DEFAULTS, timeTag: DEFAULTS.statusTag.toUpperCase() }));
@@ -158,7 +158,7 @@ test('one local timer, no vault file before explicit stop, settings snapshot pre
 test('legacy records with embedded mappings remain readable without rewriting', () =>
 {
     const oldSettings = { folder: 'old/records', timeTag: 'record/time', statusTag: 'record/status', subjectProperty: 'contexts', startProperty: 'time_start', endProperty: 'time_end', statusProperty: 'status' };
-    const data = frontmatter(entry());
+    const data = frontmatter(entry({ settings: validateSettings(oldSettings) }));
     data.track_record = { version: 1, session: SESSION, subject_id: 'subject-1', fields: oldSettings };
     const text = `---\n${stringify(data)}---\nkeep this text`;
     const result = parseRecord(text, 'old/records/original.md', parse);
@@ -277,4 +277,91 @@ test('independent device drafts create unique records and surface simultaneous w
     const records = [...a.files].map(([path, text]) => parseRecord(text, path, parse));
     assert.equal(records.length, 2);
     assert.match(historyWarnings(records).join(), /Overlapping/);
+});
+
+test('nested timer properties round-trip while status stays device-independent', () =>
+{
+    const timer = entry({ device: 'Workstation', end: undefined });
+    const data = frontmatter(timer);
+    assert.deepEqual(data.timer, { start: timer.start, end: null, device: 'Workstation' });
+    assert.equal(data['timer.start'], undefined);
+    const parsed = parseRecord(render(timer), recordPath(timer), parse);
+    assert.equal(parsed.device, 'Workstation');
+    assert.equal(parsed.end, undefined);
+    assert.equal(duration(parsed), 0);
+    const status = entry({ kind: 'status', end: undefined, status: 'active' });
+    const statusData = frontmatter(status);
+    assert.equal(statusData.timer, undefined);
+    assert.equal(statusData.time_start, status.start);
+    assert.equal(parseRecord(render(status), recordPath(status), parse).device, undefined);
+});
+
+test('flat property names and nested subject/status paths are supported', () =>
+{
+    const settings = { ...DEFAULTS, deviceProperty: 'device', startProperty: 'time_start', endProperty: 'time_end', subjectProperty: 'relations.subject', statusStartProperty: 'state.at', statusProperty: 'state.value' };
+    const timer = entry({ settings, device: 'Phone' });
+    const data = frontmatter(timer);
+    assert.equal(data.device, 'Phone');
+    assert.equal(data.time_end, timer.end);
+    assert.equal(getProperty(data, 'relations.subject') instanceof Array, true);
+    assert.equal(parseRecord(render(timer), recordPath(timer), parse, [settings]).device, 'Phone');
+    const status = entry({ settings, kind: 'status', status: 'open', end: undefined });
+    assert.deepEqual(frontmatter(status).state, { at: status.start, value: 'open' });
+});
+
+test('nested paths reject overlap, scalar parents and prototype pollution', () =>
+{
+    for (const deviceProperty of ['timer', 'timer.start', 'timer.start.name', 'timer.__proto__.x', 'constructor.x', 'tags.device']) assert.throws(() => validateSettings({ ...DEFAULTS, deviceProperty }));
+    assert.throws(() => setProperty({ timer: 'user value' }, 'timer.end', 'value'), /parent/);
+    assert.throws(() => getProperty({ timer: [] }, 'timer.start'), /parent/);
+    assert.equal(({} as Record<string, unknown>).polluted, undefined);
+});
+
+test('missing, null and empty end fields select open records by device or reset-all', () =>
+{
+    for (const end of [undefined, null, '', '  ']) {
+        const record = entry({ device: 'Desktop', end: undefined });
+        const data = frontmatter(record);
+        if (end === undefined) delete (data.timer as Record<string, unknown>).end;
+        else setProperty(data, DEFAULTS.endProperty, end);
+        const parsed = parseRecord(`---\n${stringify(data)}---\n`, 'record.md', parse);
+        assert.equal(isOpenEnd(parsed.end), true);
+        assert.equal(ownedOpenTimers([parsed], 'Desktop').length, 1);
+        assert.equal(ownedOpenTimers([parsed], 'Phone').length, 0);
+        assert.equal(ownedOpenTimers([parsed], 'Phone', true).length, 1);
+    }
+    assert.equal(isOpenEnd(0), false);
+    assert.equal(isOpenEnd(false), false);
+});
+
+test('closing a timer preserves body, YAML comments and unrelated nested fields', () =>
+{
+    const record = entry({ device: 'Desktop', end: undefined });
+    const path = recordPath(record);
+    const text = render(record).replace('timer:', '# keep comment\ntimer:').replace('  end: null', '  extra: keep\n  end: null') + '\n## Details\nDo not change this body.\n';
+    const expected = parseRecord(text, path, parse);
+    const closed = closeTimerText(text, expected, entry().end!, parse, [DEFAULTS]);
+    assert.match(closed, /# keep comment/);
+    assert.match(closed, /extra: keep/);
+    assert.ok(closed.endsWith('\n## Details\nDo not change this body.\n'));
+    assert.equal(parseRecord(closed, path, parse).end, entry().end);
+    assert.equal(closeTimerText(closed, expected, entry().end!, parse, [DEFAULTS]), closed);
+    assert.throws(() => closeTimerText(text.replace('Desktop', 'Phone'), expected, entry().end!, parse, [DEFAULTS]), /changed/);
+    assert.throws(() => closeTimerText(text, expected, record.start, parse, [DEFAULTS]), /End must be/);
+    const windowsText = text.replace(/\n/g, '\r\n');
+    const windowsClosed = closeTimerText(windowsText, expected, entry().end!, parse, [DEFAULTS]);
+    assert.ok(windowsClosed.endsWith('\r\n## Details\r\nDo not change this body.\r\n'));
+    assert.ok(!windowsClosed.includes('\r\r\n'));
+    assert.equal(parseRecord(windowsClosed, path, parse).end, entry().end);
+});
+
+test('device suggestions fall back safely and names remain editable', () =>
+{
+    assert.equal(suggestDeviceName(() => '  Test-PC  ', 'This device'), 'Test-PC');
+    assert.equal(suggestDeviceName(() =>
+    {
+        throw Error('unavailable');
+    }, 'Android device'), 'Android device');
+    assert.equal(validateDeviceName('Phone'), 'Phone');
+    for (const name of ['', '  ', 'two\nlines']) assert.throws(() => validateDeviceName(name));
 });
