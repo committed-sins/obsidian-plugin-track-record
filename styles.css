@@ -1,0 +1,6 @@
+.track-record-bar { cursor: pointer; }
+.track-record-view { padding: var(--size-4-3); }
+.track-record-warning { color: var(--text-warning); overflow-wrap: anywhere; }
+.track-record-entry { border-top: 1px solid var(--background-modifier-border); padding: var(--size-4-3) 0; overflow-wrap: anywhere; }
+.track-record-entry div { color: var(--text-muted); font-size: var(--font-ui-small); margin: var(--size-4-1) 0; }
+.track-record-link { margin-right: var(--size-4-2); max-width: 100%; white-space: normal; }

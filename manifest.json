@@ -1,0 +1,10 @@
+{
+  "id": "track-record",
+  "name": "Track Record",
+  "version": "0.1.0",
+  "minAppVersion": "1.11.4",
+  "description": "Record work intervals and note status history as linked Markdown records.",
+  "author": "Committed Sins",
+  "authorUrl": "https://github.com/committed-sins",
+  "isDesktopOnly": false
+}

@@ -1,8 +1,21 @@
 # Data model and architecture
 
-## Proposed storage
+## Preview 0.1.0 decisions
 
-Use ordinary Markdown record notes in a configurable vault folder. One record per work interval or status transition is the starting proposal; batching and file layout are not frozen. Do not use plugin `data.json` as the sole source of tracking history.
+- One Markdown file per completed interval or explicit status event. Default folder: `records/track-record`; filename: `<start-date>-<time|status>-<uuid>.md`.
+- Classify record types by configurable tags. A `track_record` block stores version `1`, writer session, optional existing subject ID and original property/tag/folder mappings. Parsing does not depend on current settings.
+- Use a single full-path wikilink in the configured subject property. Reject unsupported wikilink path characters instead of guessing. Existing string note IDs are read, never assigned or changed.
+- One timer per vault and device. Use public `App.loadLocalStorage` / `saveLocalStorage` for its draft, not synchronized `data.json`. The timer does not write an open interval note. Explicit stop creates a closed interval.
+- Store pending timer payload, UUID and destination locally before asynchronous creation. Exact retries succeed; conflicting content is never overwritten. Preserve pending intent if saving or clearing local state fails.
+- Reload/shutdown never infers an end time. A previous session's draft is interrupted and requires an explicit actual end time. Sleep/idle time is not automatically subtracted.
+- Status capture is command-only: a user-asserted effective timestamp, resulting status and creation timestamp. Repeated statuses are retained. No source-status projection, observer or previous-status inference yet.
+- History scans the configured folder and metadata-cache entries carrying our schema marker. Refresh after external edits/sync. Persistent indexes and project aggregation are not yet implemented.
+- Overlaps across work records, duplicate IDs and invalid records withhold totals. Equal-time status events are flagged, not resolved. No implicit union of overlaps or causal ordering by UUID.
+- Only newly created records are written. No source-note writes, migrations, automatic activation, network access or release creation.
+
+## Record storage
+
+Use ordinary Markdown record notes in a configurable vault folder. The abbreviated examples below omit the required `track_record` metadata block; see generated records for the complete schema. Plugin `data.json` is not the source of tracking history.
 
 Illustrative closed work interval:
 
@@ -32,7 +45,7 @@ status: ongoing
 ---
 ```
 
-These are illustrative schema candidates, not templates to apply to an existing vault. The meaning of a missing `time_end`, previous status, observation timestamps, record revisions and device/session identifiers must be specified before implementation.
+Schema version 1 requires an end after the start for work records; unfinished intervals exist only as local timer drafts. Status events have no end or previous-status field. Unknown versions, ambiguous tags and invalid timestamps are refused rather than repaired. Edit record properties/text directly to correct them and refresh history afterward; retain IDs and the metadata block.
 
 ## Responsibilities
 
@@ -51,12 +64,12 @@ Work duration measures recorded work intervals. Status duration measures elapsed
 
 Identical effective timestamps need an ambiguity/tie policy. Wall-clock order alone does not prove causal order between devices. A property change seen after sync is an observation, not evidence of its original timestamp.
 
-## Open design decisions
+## Later design decisions
 
-- Single timer or concurrent timers; pause/resume representation.
-- Record filenames, folder layout and expected large-vault/mobile indexing cost.
-- Stable subject identity: existing note IDs, wikilinks and rename/move behavior.
-- Explicit status commands versus observation of arbitrary property edits.
+- Concurrent timers and pause/resume beyond stopping one interval and starting another.
+- Large-vault/mobile indexing and optional incremental caches.
+- Subject-ID adoption/migration and recovery after offline renames without an ID.
+- Optional observation of arbitrary property edits beyond explicit commands.
 - Current status: retain the source property as a projection, derive it from records, or support both with clear ownership.
 - Reconciliation when a status changes while Obsidian is closed.
 - Conflict detection, idempotency, corrections and deletion semantics across sync.

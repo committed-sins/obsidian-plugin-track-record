@@ -5,19 +5,20 @@
 - [x] Confirm name and subtitle.
 - [x] Check the community registry and targeted repository search for exact name collisions on 2026-11-18.
 - [x] Prepare requirements, architecture, research and contributor instructions.
-- [ ] Resolve the open schema and capture-policy decisions before implementing automatic writes.
+- [x] Choose a versioned Markdown schema, one local timer and explicit-only status capture for the preview. Automatic observation remains deferred.
 
 ## 1. Manual record MVP
 
-- Create the TypeScript plugin scaffold and build tooling with Allman formatting.
-- Implement configurable record folder, tag/property mappings and subject selection.
-- Create manual time and status records with stable IDs and validation.
-- Add explicit start/stop commands and device-local interrupted-session recovery after defining timer concurrency.
-- Implement focused tests for timestamp handling, repeated statuses, guarded writes and recovery.
+- [x] Create the TypeScript plugin scaffold and build tooling with Allman formatting.
+- [x] Implement configurable record folder, tag/property mappings and subject selection.
+- [x] Create manual time and status records with stable IDs and validation.
+- [x] Add explicit start/stop commands and device-local interrupted-session/pending-save recovery.
+- [x] Add note/all-records history with work totals and ambiguity warnings.
+- [x] Pass 26 core, plugin-boundary and deployment tests.
 
 ## 2. Status capture and history
 
-- Add status-change commands and a note history view.
+- [x] Add explicit status-record commands and a note history view; source-note projection remains deferred.
 - Add optional property observation only after defining effective/observed times and projection ownership.
 - Detect ambiguous transitions, concurrent changes and delayed sync.
 - Validate note renames, record corrections, duplicate delivery and metadata-plugin interactions.
@@ -31,9 +32,9 @@
 
 ## 4. Validation and release
 
-- Deploy a development preview to a designated test vault only when authorized.
+- [x] Deploy development preview 0.1.0 to the authorized Test vault (2026-11-19), preserving activation and settings.
 - Let the user validate desktop and Android behavior, including interruption, offline use and sync ordering.
 - Measure performance on realistic record counts.
 - Prepare a first beta and later evaluate Community Plugins submission.
 
-No runtime, deployment or release is included in the initial concept setup.
+Preview 0.1.0 is a development build. Test-vault deployment and user validation must precede the first release. Do not tag or publish it based on the manifest version alone. The user handles Community Plugins submission after release approval.

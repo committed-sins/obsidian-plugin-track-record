@@ -1,5 +1,7 @@
 # Requirements
 
+Preview 0.1.0 implements manual records, one local timer, interrupted-save recovery and a note-history view. Decisions and limits are recorded in [architecture](architecture.md); automated and manual validation are distinguished in [testing](testing.md). Requirements below also describe later work.
+
 ## Confirmed direction
 
 Build an independent Obsidian plugin named **Track Record**, with the subtitle **Time tracking & status history for your notes.** Capture time intervals and note-level status history as linked Markdown records. General note creation remains with Templater, and planned record/relations queries remain read-only consumers in Bases Excerpts.
@@ -52,4 +54,4 @@ Build an independent Obsidian plugin named **Track Record**, with the subtitle *
 7. Direct property edits follow the documented capture policy without recursive writes.
 8. An ordinary note, unrelated metadata and existing Tasks checkbox semantics remain intact.
 
-These scenarios are future validation requirements, not tests already run.
+Automated coverage now includes timestamp/DST handling, repeated statuses, guarded writes, timer recovery, simultaneous device drafts, subject renames and preservation of source notes. Recursive project aggregation is not implemented. Live desktop/Android checks remain pending.
