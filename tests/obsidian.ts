@@ -63,6 +63,8 @@ export class Notice
 export class Plugin
 {
     commands: { id: string; callback: () => void }[] = [];
+    views = new Map<string, (leaf: unknown) => ItemView>();
+    settingTabs: { display(): void }[] = [];
     data: unknown = null;
     constructor(public app: unknown)
     {
@@ -75,11 +77,13 @@ export class Plugin
     {
         this.data = data;
     }
-    registerView(): void
+    registerView(type: string, factory: (leaf: unknown) => ItemView): void
     {
+        this.views.set(type, factory);
     }
-    addSettingTab(): void
+    addSettingTab(tab: { display(): void }): void
     {
+        this.settingTabs.push(tab);
     }
     addStatusBarItem(): Element
     {
@@ -133,8 +137,19 @@ export class ItemView
 export class WorkspaceLeaf
 { }
 
+export class AbstractInputSuggest<T>
+{
+    setValue(_value: string): void
+    {
+    }
+    close(): void
+    {
+    }
+}
+
 export class Control
 {
+    inputEl = {};
     text = '';
     disabled = false;
     change: (value: string) => void = () =>

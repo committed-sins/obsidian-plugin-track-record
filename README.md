@@ -4,15 +4,15 @@
 
 Track Record records work intervals and note status events as linked Markdown records in your vault.
 
-**Development preview 0.1.0. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
+**Development preview 0.1.1. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
 
 ## Preview features
 
-- Start/stop a timer for the active Markdown note: one timer per vault and device.
+- Start/stop a timer for the current note directly in the sidebar. Starting another timer closes the previous timer on this device at the new start time; other devices are unaffected.
 - Add manual time records and explicit status events, including repeated visits to a status.
 - Open the history sidebar for the selected note or all records. Inspect work totals, record links and warnings about overlaps, duplicate IDs and tied status times.
 - Recover interrupted timers after reload/shutdown by choosing the actual end time. Pending saves retry the same UUID and content.
-- Configure the record folder, tags and property names. Earlier records retain their mapping in a versioned metadata block.
+- Configure Timer and Status separately: folder, identifying tag and filename format. They can share a folder. Earlier property/tag mappings are retained in plugin settings, not in the Markdown notes.
 
 Commands are prefixed **Track Record** in the command palette: **Start timer for active note**, **Stop timer**, **Add manual time record for active note**, **Record status for active note**, **Open note history and timer**, and **Recover interrupted timer**. The ribbon/status-bar item opens history.
 
@@ -20,13 +20,24 @@ Use ISO timestamps with an explicit timezone, e.g. `2026-11-19T09:00:00+01:00`. 
 
 **Source notes remain unchanged.** Recording a status does not update the source note's `status` property. The preview has no automatic property observer, source-status projection, status-duration formulas or project aggregation. Work duration is separate from time spent in a status.
 
-The default folder is `records/track-record`. Each record has a UUID, type tag, single full-path subject link and `track_record` metadata containing schema version, session, optional existing subject ID and property mappings. Existing note IDs are read, never assigned or changed.
+Both default folders are `records/track-record`. New records have a UUID, type tag, creation timestamp, single subject wikilink and ordinary time/status properties. They contain no `track_record` block or private subject/session metadata. Existing 0.1.0 records remain readable without rewriting them. Existing source-note IDs are read for local timer recovery, never assigned or changed.
 
-Running timers and pending timer-save intent use Obsidian's vault-specific, device-local storage, not shared plugin `data.json`. A work record is created only on explicit stop/recovery. App storage loss can lose an unfinished local draft; completed Markdown records are independent. Idle/sleep time is not automatically subtracted from an explicitly started timer.
+Timer and Status settings use separate **Save in folder** (vault-relative filesystem path, with folder suggestions) and **Identify by tag** (Obsidian tag) controls. A slash in a tag denotes a tag hierarchy, not a folder. The settings accept an optional leading `#`; YAML stores a normal `tags` list without it. Tags are case-insensitive.
+
+The default filename format for both kinds is `{type} - {timestamp} - {hash}`:
+
+```text
+Timer - 2026-11-19T08-00-00Z - a1b2c3.md
+Status - 2026-11-19T08-00-00Z - d4e5f6.md
+```
+
+`{timestamp}` is UTC to seconds, without milliseconds; colons become hyphens for Windows-safe names. `{date}` is its UTC calendar date. `{type}` is Timer or Status. `{hash}` is a six-character UUID prefix (not a cryptographic content hash); it expands if a filename already exists with different content. Each type can use its own pattern. Include `{hash}` and omit the `.md` extension. Ordinary timestamp properties retain their full precision and timezone.
+
+Running timers and pending timer-save intent use Obsidian's vault-specific, device-local storage, not shared plugin `data.json`. A work record is created on explicit stop/recovery or a deliberate switch to another timer. A switch never starts the replacement if saving the previous interval fails. Interrupted pending saves keep their original bytes/path even across the preview upgrade. App storage loss can lose an unfinished local draft; completed Markdown records are independent. Idle/sleep time is not automatically subtracted.
 
 Devices create independent records. Overlaps are flagged rather than merged; totals are withheld if scanned records overlap, have duplicate IDs or cannot be parsed. There is no cross-device timer lock or exactly-once guarantee for separate manual submissions. Tied status events have no inferred causal order.
 
-String subject IDs help with renames. Duplicate IDs known to the metadata cache block recording. For notes without IDs, recovery after an offline rename can require restoring the original path. Native wikilink updates remain Obsidian's responsibility. History refresh is explicit; large-vault and live mobile behavior remain unverified.
+Subject relationships in new records come exclusively from their wikilinks. Native wikilink updates remain Obsidian's responsibility. A local timer can also use the source note's existing string ID for recovery. Duplicate source IDs known to the metadata cache block recording. Recovery after an offline rename without an ID can require restoring the original path. Retained profiles in plugin settings must be kept/synchronized if older records use customized tags or property names. History refresh is explicit; only the sidebar clock updates each second. Large-vault and live mobile behavior remain unverified.
 
 ## Build and test deployment
 
@@ -40,7 +51,7 @@ node scripts/deploy.mjs /path/to/Test
 
 Artifacts are built into `dist/`. Deployment accepts only a vault named `Test`, copying `main.js`, `manifest.json` and `styles.css` into `.obsidian/plugins/track-record`. Settings, activation, workspace and records are preserved. Enable/reload manually in Test.
 
-TypeScript, Allman checks, build and 26 automated tests pass. Tests exercise the core, real plugin methods against a simulated Obsidian boundary, and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
+TypeScript, Allman checks, build and 35 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
 
 ## Direction beyond the preview
 

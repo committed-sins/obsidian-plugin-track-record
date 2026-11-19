@@ -1,5 +1,5 @@
-import { ItemView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, parseYaml, stringifyYaml } from 'obsidian';
-import { DEFAULTS, Timer, createOnce, duration, frontmatter, historyWarnings, instant, localTimestamp, parseRecord, recordPath, sameSubject, validateRecord, validateSettings, validateSubject, type RecordEntry, type Settings, type Subject, type TimerDraft } from './core';
+import { AbstractInputSuggest, ItemView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, parseYaml, stringifyYaml, type App } from 'obsidian';
+import { DEFAULTS, Timer, chooseRecordPath, createOnce, duration, frontmatter, hasRecordTag, historyWarnings, instant, localTimestamp, parseRecord, recordPath, sameSubject, validateRecord, validateSettings, validateSubject, type RecordEntry, type Settings, type Subject, type TimerDraft, type Writer } from './core';
 
 const VIEW = 'track-record-history';
 const LOCAL_KEY = 'track-record:timer:v1';
@@ -32,6 +32,7 @@ export default class TrackRecord extends Plugin
     timer!: Timer;
     selected: Subject | null = null;
     busy = false;
+    readProfiles: Settings[] = [];
     private session = crypto.randomUUID();
     private bar!: HTMLElement;
     private alive = true;
@@ -40,7 +41,9 @@ export default class TrackRecord extends Plugin
     async onload(): Promise<void>
     {
         try {
-            this.settings = validateSettings({ ...DEFAULTS, ...await this.loadData() });
+            const saved = await this.loadData();
+            this.settings = validateSettings(saved ?? DEFAULTS);
+            this.readProfiles = Array.isArray(saved?.readProfiles) ? saved.readProfiles.map((profile: unknown) => validateSettings(profile)) : [];
             this.ready = true;
         }
         catch (error) {
@@ -178,7 +181,13 @@ export default class TrackRecord extends Plugin
 
     isSubject(file: TFile): boolean
     {
-        return file.extension === 'md' && !file.path.startsWith(this.settings.folder + '/') && !this.app.metadataCache.getFileCache(file)?.frontmatter?.track_record;
+        const data = this.app.metadataCache.getFileCache(file)?.frontmatter;
+        return file.extension === 'md' && !data?.track_record && !hasRecordTag(data, this.profiles());
+    }
+
+    profiles(): Settings[]
+    {
+        return [this.settings, ...this.readProfiles];
     }
 
     private cachedSubject(file: TFile): Subject
@@ -193,7 +202,7 @@ export default class TrackRecord extends Plugin
         const data = await this.app.vault.read(file);
         const fm = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(data);
         const properties = fm ? parseYaml(fm[1]) : null;
-        if (properties?.track_record) throw Error('A record cannot be used as its own subject.');
+        if (properties?.track_record || hasRecordTag(properties, this.profiles())) throw Error('A record cannot be used as its own subject.');
         const id = properties?.id;
         if (id !== undefined && (typeof id !== 'string' || !id.trim())) throw Error('Subject id must be a non-empty string.');
         if (id) {
@@ -228,10 +237,16 @@ export default class TrackRecord extends Plugin
         return file;
     }
 
-    async startTimer(): Promise<void>
+    async startTimer(target?: Subject): Promise<void>
     {
-        const subject = await this.subject(this.activeFile());
-        this.timer.start(subject, localTimestamp(), this.settings, crypto.randomUUID());
+        const subject = target ? await this.resolveSubject(target) : await this.subject(this.activeFile());
+        const switchTime = localTimestamp();
+        const previous = this.timer.get();
+        if (previous) {
+            const resolved = previous.pending ? previous.pending.subject : await this.resolveSubject(previous.subject);
+            await this.timer.finish(switchTime, switchTime, resolved, render);
+        }
+        this.timer.start(subject, switchTime, this.settings, crypto.randomUUID());
         this.selected = subject;
         new Notice(`Track Record: timer started for ${subject.path}.`);
     }
@@ -261,10 +276,10 @@ export default class TrackRecord extends Plugin
         } catch (error) { new Notice(`Track Record: ${message(error)}`); }
     }
 
-    async prepareModal(kind: 'time' | 'status'): Promise<void>
+    async prepareModal(kind: 'time' | 'status', target?: Subject): Promise<void>
     {
         try {
-            const subject = await this.subject(this.activeFile());
+            const subject = target ? await this.resolveSubject(target) : await this.subject(this.activeFile());
             new EntryModal(this, subject, kind).open();
         } catch (error) { new Notice(`Track Record: ${message(error)}`); }
     }
@@ -274,8 +289,7 @@ export default class TrackRecord extends Plugin
         validateRecord(entry);
         // Resolve just before writing; never mutate the subject note or its status property.
         entry.subject = await this.resolveSubject(entry.subject);
-        const path = recordPath(entry);
-        await createOnce({
+        const writer: Writer = {
             read: async p =>
             {
                 const file = this.app.vault.getAbstractFileByPath(p);
@@ -285,10 +299,14 @@ export default class TrackRecord extends Plugin
             },
             create: async (p, content) =>
             {
-                await this.ensureFolder(entry.settings.folder);
+                await this.ensureFolder(p.slice(0, p.lastIndexOf('/')));
                 await this.app.vault.create(p, content);
             }
-        }, path, render(entry));
+        };
+        const content = render(entry);
+        entry.path ??= await chooseRecordPath(writer, entry, content);
+        const path = recordPath(entry);
+        await createOnce(writer, path, content);
         this.selected = entry.subject;
         return path;
     }
@@ -304,7 +322,7 @@ export default class TrackRecord extends Plugin
     async snapshot(): Promise<Snapshot>
     {
         const records: RecordEntry[] = [], errors: string[] = [];
-        // Only read the current record folder and other indexed notes carrying our schema marker.
+        // Tags identify records independently of their folder; legacy metadata is read-only compatibility.
         const allFiles = this.app.vault.getMarkdownFiles();
         const subjectsById = new Map<string, TFile[]>();
         for (const file of allFiles.filter(candidate => this.isSubject(candidate))) {
@@ -314,13 +332,19 @@ export default class TrackRecord extends Plugin
             matching.push(file);
             subjectsById.set(id, matching);
         }
-        const files = allFiles.filter(file => file.path.startsWith(this.settings.folder + '/') || this.app.metadataCache.getFileCache(file)?.frontmatter?.track_record);
+        const files = allFiles.filter(file =>
+        {
+            const data = this.app.metadataCache.getFileCache(file)?.frontmatter;
+            return data?.track_record || hasRecordTag(data, this.profiles()) || this.profiles().some(profile => [profile.timerFolder, profile.statusFolder].some(folder => file.path.startsWith(folder + '/')));
+        });
         for (const file of files) {
             try {
                 const text = await this.app.vault.read(file);
                 const fm = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
-                if (!fm || !parseYaml(fm[1])?.track_record) continue;
-                const record = parseRecord(text, file.path, parseYaml);
+                if (!fm) continue;
+                const data = parseYaml(fm[1]);
+                if (!data?.track_record && !hasRecordTag(data, this.profiles())) continue;
+                const record = parseRecord(text, file.path, parseYaml, this.profiles());
                 const matching = record.subject.id ? subjectsById.get(record.subject.id) ?? [] : [];
                 if (matching.length > 1) errors.push(`${file.path}: duplicate subject ID; attribution is ambiguous.`);
                 const destination = matching.length === 1 ? matching[0] : this.app.metadataCache.getFirstLinkpathDest(record.subject.path, file.path);
@@ -363,13 +387,19 @@ export default class TrackRecord extends Plugin
             const state = draft ? draft.pending ? 'pending save' : draft.session === this.session ? elapsed(Date.now() - instant(draft.start)) : 'interrupted' : 'idle';
             this.bar.setText(`Track Record: ${state}`);
             this.bar.setAttribute('aria-label', 'Open Track Record history and timer');
+            for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) {
+                if (leaf.view instanceof HistoryView) leaf.view.updateClock();
+            }
         } catch { this.bar.setText('Track Record: recovery needed'); }
     }
 
     async saveSettings(settings: Settings): Promise<void>
     {
         const next = validateSettings(settings);
-        await this.saveData(next);
+        const profiles = [this.settings, ...this.readProfiles];
+        const retained = [...new Map(profiles.map(profile => [JSON.stringify(profile), profile])).values()].filter(profile => JSON.stringify(profile) !== JSON.stringify(next));
+        await this.saveData({ ...next, readProfiles: retained });
+        this.readProfiles = retained;
         this.settings = next;
         this.ready = true;
         this.refreshViews();
@@ -495,6 +525,8 @@ class ConfirmModal extends Modal
 class HistoryView extends ItemView
 {
     private generation = 0;
+    private allRecords = false;
+    private clock: HTMLElement | null = null;
 
     constructor(leaf: WorkspaceLeaf, private plugin: TrackRecord)
     {
@@ -524,6 +556,16 @@ class HistoryView extends ItemView
     async onClose(): Promise<void>
     {
         this.generation++;
+        this.clock = null;
+    }
+
+    updateClock(): void
+    {
+        if (!this.clock) return;
+        try {
+            const draft = this.plugin.timer.get();
+            this.clock.setText(!draft ? 'No running timer' : draft.pending ? 'Pending save' : draft.session !== this.plugin.timer.session ? 'Interrupted · choose an end time' : `Running · ${elapsed(Date.now() - instant(draft.start))}`);
+        } catch (error) { this.clock.setText(message(error)); }
     }
 
     async refresh(): Promise<void>
@@ -535,48 +577,90 @@ class HistoryView extends ItemView
         if (generation !== this.generation) return;
         const root = this.contentEl;
         root.empty();
+        this.clock = null;
         root.addClass('track-record-view');
         root.createEl('h3', { text: 'Track Record' });
-        root.createEl('p', { text: 'Time tracking & status history for your notes.' });
-        const controls = new Setting(root);
-        controls.addButton(button => button.setButtonText('Refresh').onClick(() => this.refresh()));
-        try {
-            const draft = this.plugin.timer.get();
-            if (draft) {
-                root.createEl('p', { text: `Local timer: ${draft.subject.path} · ${draft.start}${draft.pending ? ' · pending save' : draft.session !== this.plugin.timer.session ? ' · interrupted' : ''}` });
-                controls.addButton(button => button.setButtonText('Stop / recover').onClick(() => this.plugin.stopTimer()));
-            }
-        } catch (error) { root.createEl('p', { text: message(error), cls: 'track-record-warning' }); }
         const selected = this.plugin.selected;
-        root.createEl('h4', { text: selected ? `Note: ${selected.path}` : 'All records' });
-        new Setting(root).addButton(button => button.setButtonText('Show all').onClick(() =>
+        const current = root.createDiv({ cls: 'track-record-current' });
+        current.createEl('div', { text: 'Current note', cls: 'track-record-label' });
+        current.createEl('strong', { text: selected ? selected.path.replace(/\.md$/i, '') : 'Open a note to start tracking' });
+        let draft: TimerDraft | null = null;
+        try {
+            draft = this.plugin.timer.get();
+        } catch (error) { current.createEl('p', { text: message(error), cls: 'track-record-warning' }); }
+        const runningHere = draft && selected && sameSubject(draft.subject, selected);
+        if (selected) {
+            new Setting(current).addButton(button => button.setButtonText(runningHere ? 'Stop timer' : draft ? 'Start timer here' : 'Start timer').setCta().setDisabled(this.plugin.busy).onClick(async () =>
+            {
+                if (runningHere) await this.plugin.stopTimer();
+                else await this.plugin.run(async () => this.plugin.startTimer(selected));
+            }));
+            new Setting(current).addButton(button => button.setButtonText('Add time').onClick(() => this.plugin.prepareModal('time', selected)))
+                .addButton(button => button.setButtonText('Record status').onClick(() => this.plugin.prepareModal('status', selected)));
+        }
+        if (draft) {
+            const active = root.createDiv({ cls: 'track-record-running' });
+            this.clock = active.createEl('strong');
+            this.updateClock();
+            active.createEl('div', { text: draft.subject.path.replace(/\.md$/i, ''), cls: 'track-record-subtle' });
+            active.createEl('div', { text: `Started ${draft.start}`, cls: 'track-record-subtle' });
+            if (!runningHere || draft.pending || draft.session !== this.plugin.timer.session) new Setting(active).addButton(button => button.setButtonText(draft.pending || draft.session !== this.plugin.timer.session ? 'Recover timer' : 'Stop timer').onClick(() => this.plugin.stopTimer()));
+        }
+        root.createEl('h4', { text: 'History' });
+        new Setting(root).setName(this.allRecords || !selected ? 'All notes' : 'Current note').addButton(button => button.setButtonText(this.allRecords ? 'This note' : 'All notes').onClick(() =>
         {
-            this.plugin.selected = null;
-            void this.refresh();
-        }));
-        const records = snapshot.records.filter(record => !selected || sameSubject(record.subject, selected));
+            this.allRecords = !this.allRecords;
+            return this.refresh();
+        })).addButton(button => button.setButtonText('Refresh').onClick(() => this.refresh()));
+        const records = snapshot.records.filter(record => this.allRecords || !selected || sameSubject(record.subject, selected));
         const warnings = [...snapshot.errors, ...historyWarnings(snapshot.records)];
         for (const warning of warnings) root.createEl('p', { text: warning, cls: 'track-record-warning' });
         const ambiguousTime = snapshot.errors.length > 0 || warnings.some(warning => /totals are withheld/.test(warning));
-        root.createEl('p', { text: ambiguousTime ? 'Work total withheld; review warnings.' : `Recorded work: ${elapsed(records.reduce((total, record) => total + duration(record), 0))}` });
-        root.createEl('p', { text: 'Status events describe effective times, not active work. Source status properties are unchanged. Edit a record’s Markdown to correct it, then refresh.' });
+        root.createEl('p', { cls: 'track-record-summary', text: ambiguousTime ? 'Work total withheld; review warnings.' : `Recorded work · ${elapsed(records.reduce((total, record) => total + duration(record), 0))}` });
         records.sort((a, b) => instant(b.start) - instant(a.start) || a.id.localeCompare(b.id));
         if (!records.length) root.createEl('p', { text: 'No records. Open a note and use the Track Record commands to start tracking.' });
         for (const record of records) {
             const row = root.createDiv({ cls: 'track-record-entry' });
-            row.createEl('strong', { text: record.kind === 'time' ? `Work · ${elapsed(duration(record))}` : `Status · ${record.status}` });
+            row.createEl('strong', { text: record.kind === 'time' ? `Timer · ${elapsed(duration(record))}` : `Status · ${record.status}` });
             row.createEl('div', { text: record.start + (record.end ? ` → ${record.end}` : '') });
-            const source = row.createEl('button', { text: record.subject.path, cls: 'track-record-link' });
-            source.addEventListener('click', () =>
-            {
-                void this.plugin.app.workspace.openLinkText(record.subject.path, record.path ?? '', false);
-            });
+            if (this.allRecords || !selected) {
+                const source = row.createEl('button', { text: record.subject.path.replace(/\.md$/i, ''), cls: 'track-record-link' });
+                source.addEventListener('click', () =>
+                {
+                    void this.plugin.app.workspace.openLinkText(record.subject.path, record.path ?? '', false);
+                });
+            }
             const edit = row.createEl('button', { text: 'Open record' });
             edit.addEventListener('click', () =>
             {
                 void this.plugin.app.workspace.openLinkText(record.path!, '', false);
             });
         }
+    }
+}
+
+class FolderSuggest extends AbstractInputSuggest<TFolder>
+{
+    constructor(private vaultApp: App, input: HTMLInputElement, private choose: (path: string) => void)
+    {
+        super(vaultApp, input);
+    }
+
+    protected getSuggestions(query: string): TFolder[]
+    {
+        return this.vaultApp.vault.getAllLoadedFiles().filter((file): file is TFolder => file instanceof TFolder && !!file.path && file.path.toLowerCase().includes(query.toLowerCase())).sort((a, b) => a.path.localeCompare(b.path));
+    }
+
+    renderSuggestion(folder: TFolder, el: HTMLElement): void
+    {
+        el.setText(folder.path);
+    }
+
+    selectSuggestion(folder: TFolder): void
+    {
+        this.setValue(folder.path);
+        this.choose(folder.path);
+        this.close();
     }
 }
 
@@ -591,14 +675,52 @@ class RecordSettings extends PluginSettingTab
     {
         this.containerEl.empty();
         this.containerEl.createEl('h2', { text: 'Track Record' });
-        this.containerEl.createEl('p', { text: 'Development preview. Explicit commands only; no automatic status observation. One local timer per vault and device. Settings changes affect new records; existing records retain their mappings.' });
+        this.containerEl.createEl('p', { text: 'Timer and status records can share a folder or use separate folders. Tags identify the record type wherever a file is stored.' });
         const draft = { ...this.plugin.settings };
-        const labels: Record<keyof Settings, string> = {
-            folder: 'Record folder', timeTag: 'Time record tag', statusTag: 'Status record tag',
-            subjectProperty: 'Subject link property', startProperty: 'Start / effective-time property', endProperty: 'End property', statusProperty: 'Record status property'
-        };
-        for (const key of Object.keys(labels) as (keyof Settings)[]) {
-            new Setting(this.containerEl).setName(labels[key]).addText(text => text.setValue(draft[key]).onChange(value =>
+        for (const kind of ['time', 'status'] as const) {
+            this.containerEl.createEl('h3', { text: kind === 'time' ? 'Timer' : 'Status' });
+            const folderKey = kind === 'time' ? 'timerFolder' : 'statusFolder';
+            const tagKey = kind === 'time' ? 'timeTag' : 'statusTag';
+            const filenameKey = kind === 'time' ? 'timerFilename' : 'statusFilename';
+            const preview = this.containerEl.createEl('p', { cls: 'track-record-subtle' });
+            const updatePreview = (): void =>
+            {
+                try {
+                    const start = localTimestamp(new Date(Date.now() - 60000));
+                    const example = this.plugin.newEntry({ path: 'Example.md' }, kind, start, localTimestamp(), 'active', '');
+                    preview.setText(`Example: ${recordPath({ ...example, settings: validateSettings(draft) })}`);
+                } catch (error) { preview.setText(message(error)); }
+            };
+            new Setting(this.containerEl).setName('Save in folder').setDesc('Folder path relative to the vault root. Choose an existing folder or type a new path. This is not a tag.').addText(text =>
+            {
+                text.setPlaceholder('records/track-record').setValue(draft[folderKey]).onChange(value =>
+                {
+                    draft[folderKey] = value;
+                    updatePreview();
+                });
+                new FolderSuggest(this.plugin.app, text.inputEl, value =>
+                {
+                    draft[folderKey] = value;
+                    updatePreview();
+                });
+            });
+            new Setting(this.containerEl).setName('Identify by tag').setDesc('Obsidian tag in the tags property. A slash creates a nested tag, not a folder. A leading # is optional here.').addText(text => text.setPlaceholder(kind === 'time' ? '#record/time' : '#record/status').setValue('#' + draft[tagKey]).onChange(value =>
+            {
+                draft[tagKey] = value;
+                updatePreview();
+            }));
+            new Setting(this.containerEl).setName('Filename format').setDesc('Tokens: {type}, {timestamp}, {date}, {hash}. Include {hash}; omit .md. Timestamp is UTC, without milliseconds, using filename-safe hyphens.').addText(text => text.setValue(draft[filenameKey]).onChange(value =>
+            {
+                draft[filenameKey] = value;
+                updatePreview();
+            }));
+            updatePreview();
+        }
+        const properties = this.containerEl.createEl('details');
+        properties.createEl('summary', { text: 'Properties shared by Timer and Status' });
+        const labels = { subjectProperty: 'Subject link property', startProperty: 'Start / effective-time property', endProperty: 'Timer end property', statusProperty: 'Status value property' };
+        for (const key of Object.keys(labels) as (keyof typeof labels)[]) {
+            new Setting(properties).setName(labels[key]).addText(text => text.setValue(draft[key]).onChange(value =>
             {
                 draft[key] = value;
             }));
@@ -609,7 +731,7 @@ class RecordSettings extends PluginSettingTab
             try {
                 if (this.plugin.busy) throw Error('Wait for the current write.');
                 await this.plugin.saveSettings(draft);
-                feedback.setText('Saved. Existing records and local timer mappings are unchanged.');
+                feedback.setText('Saved. Earlier mappings are retained in plugin settings; existing notes and local timer drafts are unchanged.');
             } catch (error) { feedback.setText(message(error)); }
         }));
     }

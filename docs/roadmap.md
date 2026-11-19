@@ -14,7 +14,16 @@
 - [x] Create manual time and status records with stable IDs and validation.
 - [x] Add explicit start/stop commands and device-local interrupted-session/pending-save recovery.
 - [x] Add note/all-records history with work totals and ambiguity warnings.
-- [x] Pass 26 core, plugin-boundary and deployment tests.
+- [x] Pass core, plugin-boundary and deployment tests.
+
+## Preview 0.1.1 refinements
+
+- [x] Remove private metadata from new records; read legacy records and pending saves without rewriting them.
+- [x] Separate Timer/Status folders, tags and user-defined filename formats; clarify tag hierarchy versus directory paths.
+- [x] Default to Timer/Status, UTC seconds without milliseconds and a short collision-safe ID suffix.
+- [x] Add current-note Start/Stop, a live running-timer card and a separate history scope to the sidebar.
+- [x] Close the previous timer on this device when starting a replacement, blocking replacement on save failure.
+- [x] Extend coverage to 35 tests, including upgrade recovery and sidebar controls.
 
 ## 2. Status capture and history
 
@@ -37,4 +46,4 @@
 - Measure performance on realistic record counts.
 - Prepare a first beta and later evaluate Community Plugins submission.
 
-Preview 0.1.0 is a development build. Test-vault deployment and user validation must precede the first release. Do not tag or publish it based on the manifest version alone. The user handles Community Plugins submission after release approval.
+Previews are development builds. Test-vault deployment and user validation must precede the first release. Do not tag or publish based on the manifest version alone. The user handles Community Plugins submission after release approval.

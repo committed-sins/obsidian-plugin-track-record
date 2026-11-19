@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, stringify } from 'yaml';
-import { DEFAULTS, Timer, createOnce, duration, frontmatter, historyWarnings, instant, localTimestamp, parseRecord, recordPath, sameSubject, timerDraft, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
+import { DEFAULTS, Timer, chooseRecordPath, createOnce, duration, frontmatter, historyWarnings, instant, localTimestamp, parseRecord, recordPath, sameSubject, timerDraft, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
 
 const A = '00000000-0000-4000-8000-000000000001';
 const B = '00000000-0000-4000-8000-000000000002';
@@ -46,7 +46,9 @@ test('time record round-trips YAML with quoted timestamps and links', () =>
     const parsed = parseRecord(render(original), recordPath(original), parse);
     assert.equal(parsed.start, original.start);
     assert.equal(parsed.end, original.end);
-    assert.deepEqual(parsed.subject, original.subject);
+    assert.equal(parsed.subject.path, original.subject.path);
+    assert.equal(parsed.subject.id, undefined);
+    assert.equal(frontmatter(original).track_record, undefined);
     assert.equal(duration(parsed), 3600000);
     assert.equal(parsed.note.trim(), 'A note');
 });
@@ -65,20 +67,21 @@ test('reject impossible dates, ambiguous local times, invalid offsets and non-po
     assert.equal(instant(localTimestamp(new Date('2026-11-19T09:00:00.123Z'))), Date.parse('2026-11-19T09:00:00.123Z'));
 });
 
-test('custom mappings survive parsing independently of current settings', () =>
+test('custom mappings are read through profiles kept in plugin settings', () =>
 {
-    const original = entry({ settings: { ...DEFAULTS, folder: 'other/records', startProperty: 'began', endProperty: 'ended', subjectProperty: 'subjects', timeTag: 'work/interval' } });
-    const parsed = parseRecord(render(original), recordPath(original), parse);
+    const original = entry({ settings: { ...DEFAULTS, timerFolder: 'other/records', startProperty: 'began', endProperty: 'ended', subjectProperty: 'subjects', timeTag: 'work/interval' } });
+    const parsed = parseRecord(render(original), recordPath(original), parse, [DEFAULTS, original.settings]);
     assert.deepEqual(parsed.settings, original.settings);
     assert.equal(parsed.start, original.start);
 });
 
 test('invalid folder, reserved fields, duplicate mappings and tags are rejected', () =>
 {
-    for (const folder of ['../records', '/records', '.obsidian/records', 'records//time', 'C:/records', 'records\\time']) assert.throws(() => validateSettings({ ...DEFAULTS, folder }));
+    for (const timerFolder of ['../records', '/records', '.obsidian/records', 'records//time', 'C:/records', 'records\\time']) assert.throws(() => validateSettings({ ...DEFAULTS, timerFolder }));
     for (const startProperty of ['id', 'tags', 'created', '__proto__', 'track_record', 'time_end']) assert.throws(() => validateSettings({ ...DEFAULTS, startProperty }));
-    assert.throws(() => validateSettings({ ...DEFAULTS, timeTag: '#time' }));
+    assert.equal(validateSettings({ ...DEFAULTS, timeTag: '#time' }).timeTag, 'time');
     assert.throws(() => validateSettings({ ...DEFAULTS, timeTag: DEFAULTS.statusTag }));
+    assert.throws(() => validateSettings({ ...DEFAULTS, timeTag: DEFAULTS.statusTag.toUpperCase() }));
 });
 
 test('malformed frontmatter and unsupported versions fail without interpretation', () =>
@@ -149,7 +152,42 @@ test('one local timer, no vault file before explicit stop, settings snapshot pre
     timer.start(entry().subject, entry().start, DEFAULTS, A);
     assert.throws(() => timer.start(entry().subject, entry().start, DEFAULTS, B), /already exists/);
     assert.equal(m.files.size, 0);
-    assert.equal(timer.get()!.settings.folder, DEFAULTS.folder);
+    assert.equal(timer.get()!.settings.timerFolder, DEFAULTS.timerFolder);
+});
+
+test('legacy records with embedded mappings remain readable without rewriting', () =>
+{
+    const oldSettings = { folder: 'old/records', timeTag: 'record/time', statusTag: 'record/status', subjectProperty: 'contexts', startProperty: 'time_start', endProperty: 'time_end', statusProperty: 'status' };
+    const data = frontmatter(entry());
+    data.track_record = { version: 1, session: SESSION, subject_id: 'subject-1', fields: oldSettings };
+    const text = `---\n${stringify(data)}---\nkeep this text`;
+    const result = parseRecord(text, 'old/records/original.md', parse);
+    assert.equal(result.subject.id, 'subject-1');
+    assert.equal(result.settings.timerFolder, 'old/records');
+    assert.equal(recordPath(result), 'old/records/original.md');
+    assert.equal(result.note, 'keep this text');
+});
+
+test('Timer and Status use independent folders and filename formats with UTC seconds', () =>
+{
+    const settings = { ...DEFAULTS, timerFolder: 'timers', statusFolder: 'statuses' };
+    const time = entry({ settings, start: '2026-11-19T09:00:00.123+01:00' });
+    assert.equal(recordPath(time), 'timers/Timer - 2026-11-19T08-00-00Z - 000000.md');
+    assert.equal(recordPath({ ...time, kind: 'status', status: 'active', end: undefined }), 'statuses/Status - 2026-11-19T08-00-00Z - 000000.md');
+    assert.equal(recordPath({ ...time, settings: { ...settings, timerFilename: 'Work - {date} - {hash}' } }), 'timers/Work - 2026-11-19 - 000000.md');
+    for (const timerFilename of ['../{hash}', '{unknown} - {hash}', '{type}', '{hash}.md', 'Timer: {hash}']) assert.throws(() => validateSettings({ ...settings, timerFilename }));
+});
+
+test('short filename ID collisions expand the suffix rather than overwrite records', async () =>
+{
+    const m = memory();
+    const record = entry();
+    const content = render(record);
+    m.files.set(recordPath(record), 'a different record');
+    const chosen = await chooseRecordPath(m.writer, record, content);
+    assert.equal(chosen, recordPath(record, 10));
+    await createOnce(m.writer, chosen, content);
+    assert.equal(m.files.get(recordPath(record)), 'a different record');
 });
 
 test('restart retains draft and explicit end time; never auto-completes', async () =>
@@ -181,6 +219,20 @@ test('failed stop retains a durable pending record and retries the original end 
     const path = await retry.finish('ignored', 'ignored', entry().subject, render);
     assert.equal(parseRecord(m.files.get(path)!, path, parse).end, entry().end);
     assert.equal(retry.get(), null);
+});
+
+test('upgrade retries a pending 0.1.0 timer with its original filename and bytes', async () =>
+{
+    const m = memory();
+    const oldSettings = { folder: 'records/track-record', timeTag: 'record/time', statusTag: 'record/status', subjectProperty: 'contexts', startProperty: 'time_start', endProperty: 'time_end', statusProperty: 'status' };
+    const oldPath = `records/track-record/2026-11-19-time-${A}.md`;
+    const content = 'original pending record content';
+    const pending = { ...entry(), settings: oldSettings };
+    m.local.write({ version: 1, id: A, session: SESSION, subject: entry().subject, start: entry().start, settings: oldSettings, pending, content, destination: oldPath } as unknown as TimerDraft);
+    const recovered = new Timer(m.local, m.writer, NEXT_SESSION);
+    assert.equal(await recovered.finish('ignored', 'ignored', entry().subject, render), oldPath);
+    assert.equal(m.files.get(oldPath), content);
+    assert.equal(recovered.get(), null);
 });
 
 test('failure clearing local draft after successful save can be recovered exactly once', async () =>

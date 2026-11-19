@@ -97,12 +97,109 @@ test('timer resolves a note renamed while active and preserves the source conten
     f.texts.delete(oldPath);
     f.texts.set(f.source.path, f.content);
     f.events.get('rename')!(f.source, oldPath);
+    // Simulate Obsidian's native wikilink update for records without private subject metadata.
+    for (const [path, text] of f.texts) {
+        if (path !== f.source.path) f.texts.set(path, text.replace('[[notes/Example]]', '[[notes/Renamed]]'));
+    }
     await plugin.stopTimer();
     assert.equal(plugin.timer.get(), null);
     const records = (await plugin.snapshot()).records;
     assert.equal(records.length, 2);
     assert.ok(records.every(record => record.subject.path === f.source.path));
     assert.equal(f.texts.get(f.source.path), f.content);
+});
+
+test('starting a timer closes the previous local timer at exactly the new start time', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    const previous = await plugin.subject(f.source);
+    plugin.timer.start(previous, '2026-11-19T08:00:00+01:00', plugin.settings, crypto.randomUUID());
+    const next = new TFile('notes/Other.md');
+    f.files.set(next.path, next);
+    f.texts.set(next.path, '---\nid: subject-2\n---\n');
+    await plugin.startTimer({ path: next.path, id: 'subject-2' });
+    const snapshot = await plugin.snapshot();
+    assert.equal(snapshot.records.length, 1);
+    assert.equal(snapshot.records[0].subject.path, previous.path);
+    assert.equal(snapshot.records[0].end, plugin.timer.get()!.start);
+    assert.equal(plugin.timer.get()!.subject.path, next.path);
+});
+
+test('failed automatic stop prevents starting the replacement timer', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    const subject = await plugin.subject(f.source);
+    plugin.timer.start(subject, '2026-11-19T08:00:00+01:00', plugin.settings, crypto.randomUUID());
+    const id = plugin.timer.get()!.id;
+    f.setFailure(true);
+    await assert.rejects(plugin.startTimer(subject), /disk unavailable/);
+    assert.equal(plugin.timer.get()!.id, id);
+    assert.ok(plugin.timer.get()!.pending);
+});
+
+test('settings retain older property profiles outside Markdown records', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'time', '2026-11-19T09:00:00+01:00', '2026-11-19T10:00:00+01:00', '', ''));
+    await plugin.saveSettings({ ...plugin.settings, timerFolder: 'new/timers', timeTag: 'work/timer', startProperty: 'began' });
+    const snapshot = await plugin.snapshot();
+    assert.equal(snapshot.records.length, 1);
+    assert.deepEqual(snapshot.errors, []);
+    assert.ok(plugin.readProfiles.length > 0);
+    const newInstance = f.plugin();
+    (newInstance as unknown as MockPlugin).data = (plugin as unknown as MockPlugin).data;
+    await newInstance.onload();
+    assert.equal((await newInstance.snapshot()).records.length, 1);
+    assert.ok([...f.texts.values()].every(text => !text.includes('track_record:')));
+});
+
+test('settings distinguish Timer and Status folders from tag inputs', async () =>
+{
+    settings.length = 0;
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    (plugin as unknown as MockPlugin).settingTabs[0].display();
+    const folders = settings.filter(setting => setting.name === 'Save in folder');
+    const tags = settings.filter(setting => setting.name === 'Identify by tag');
+    assert.equal(folders.length, 2);
+    assert.equal(tags.length, 2);
+    assert.equal(tags[0].controls[0].text, '#record/time');
+    folders[1].controls[0].change('records/statuses');
+    tags[1].controls[0].change('#record/state');
+    const save = settings.flatMap(setting => setting.controls).find(control => control.text === 'Save settings')!;
+    await save.click();
+    assert.equal(plugin.settings.timerFolder, 'records/track-record');
+    assert.equal(plugin.settings.statusFolder, 'records/statuses');
+    assert.equal(plugin.settings.statusTag, 'record/state');
+});
+
+test('sidebar exposes current-note timer controls and a ticking timer without losing note scope', async () =>
+{
+    settings.length = 0;
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    const view = (plugin as unknown as MockPlugin).views.get('track-record-history')!({}) as unknown as { refresh(): Promise<void>; updateClock(): void; contentEl: import('./obsidian').Element };
+    await view.refresh();
+    const start = settings.flatMap(setting => setting.controls).find(control => control.text === 'Start timer')!;
+    assert.ok(start);
+    await start.click();
+    settings.length = 0;
+    await view.refresh();
+    assert.ok(settings.flatMap(setting => setting.controls).some(control => control.text === 'Stop timer'));
+    const flatten = (node: import('./obsidian').Element): string => node.text + node.children.map(flatten).join();
+    view.updateClock();
+    assert.match(flatten(view.contentEl), /Running ·/);
+    const all = settings.flatMap(setting => setting.controls).find(control => control.text === 'All notes')!;
+    await all.click();
+    assert.equal(plugin.selected!.path, f.source.path);
 });
 
 test('manual dialog validation remains editable and failed saves retry the original ID', async () =>

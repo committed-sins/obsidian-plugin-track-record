@@ -1,21 +1,21 @@
 # Data model and architecture
 
-## Preview 0.1.0 decisions
+## Preview 0.1.1 decisions
 
-- One Markdown file per completed interval or explicit status event. Default folder: `records/track-record`; filename: `<start-date>-<time|status>-<uuid>.md`.
-- Classify record types by configurable tags. A `track_record` block stores version `1`, writer session, optional existing subject ID and original property/tag/folder mappings. Parsing does not depend on current settings.
+- One Markdown file per completed interval or explicit status event. Timer and Status each have a configurable folder (both default to `records/track-record`) and filename pattern (`{type} - {timestamp} - {hash}`). UTC timestamps use seconds and filename-safe time separators; six-character UUID prefixes expand on collisions.
+- Classify record types by configurable, case-insensitive tags, independently of storage folders. New notes contain no `track_record` block. Retain older mapping profiles in plugin settings and use those to read older plain records. Read existing 0.1.0 envelopes for compatibility without modifying them.
 - Use a single full-path wikilink in the configured subject property. Reject unsupported wikilink path characters instead of guessing. Existing string note IDs are read, never assigned or changed.
 - One timer per vault and device. Use public `App.loadLocalStorage` / `saveLocalStorage` for its draft, not synchronized `data.json`. The timer does not write an open interval note. Explicit stop creates a closed interval.
 - Store pending timer payload, UUID and destination locally before asynchronous creation. Exact retries succeed; conflicting content is never overwritten. Preserve pending intent if saving or clearing local state fails.
-- Reload/shutdown never infers an end time. A previous session's draft is interrupted and requires an explicit actual end time. Sleep/idle time is not automatically subtracted.
+- Reload/shutdown never infers an end time. Recovery asks for an explicit actual end time. Deliberately starting another timer closes the previous local draft at the new start instant, including an interrupted draft; pending saves first retry their original payload. Other devices are not stopped. Sleep/idle time is not automatically subtracted.
 - Status capture is command-only: a user-asserted effective timestamp, resulting status and creation timestamp. Repeated statuses are retained. No source-status projection, observer or previous-status inference yet.
-- History scans the configured folder and metadata-cache entries carrying our schema marker. Refresh after external edits/sync. Persistent indexes and project aggregation are not yet implemented.
+- History scans configured/current and retained-profile folders, matching tags and legacy metadata-cache markers. Subject relationships in new records are resolved exclusively from wikilinks. The sidebar keeps current-note actions separate from a running-timer card and the note/all-note history scope. Clock ticks do not trigger record rescans. Refresh after external edits/sync. Persistent indexes and project aggregation are not yet implemented.
 - Overlaps across work records, duplicate IDs and invalid records withhold totals. Equal-time status events are flagged, not resolved. No implicit union of overlaps or causal ordering by UUID.
 - Only newly created records are written. No source-note writes, migrations, automatic activation, network access or release creation.
 
 ## Record storage
 
-Use ordinary Markdown record notes in a configurable vault folder. The abbreviated examples below omit the required `track_record` metadata block; see generated records for the complete schema. Plugin `data.json` is not the source of tracking history.
+Use ordinary Markdown record notes. The examples below show ordinary link/time/status properties; generated records also include `created`. There is no required private metadata block. Plugin `data.json` stores configuration and retained mapping profiles, not tracking history.
 
 Illustrative closed work interval:
 
@@ -45,7 +45,7 @@ status: ongoing
 ---
 ```
 
-Schema version 1 requires an end after the start for work records; unfinished intervals exist only as local timer drafts. Status events have no end or previous-status field. Unknown versions, ambiguous tags and invalid timestamps are refused rather than repaired. Edit record properties/text directly to correct them and refresh history afterward; retain IDs and the metadata block.
+Work records require an end after start; unfinished intervals exist only as local timer drafts. Status events have no end or previous-status field. Ambiguous tags, conflicting retained profiles and invalid timestamps are refused rather than repaired. Edit properties/text directly and refresh afterward; retain record IDs and subject links. Legacy envelope versions other than version 1 remain unsupported. Pending 0.1.0 timer saves retain their exact original destination and content rather than adopting new names halfway through a write.
 
 ## Responsibilities
 

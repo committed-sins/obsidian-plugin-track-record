@@ -4,3 +4,11 @@
 .track-record-entry { border-top: 1px solid var(--background-modifier-border); padding: var(--size-4-3) 0; overflow-wrap: anywhere; }
 .track-record-entry div { color: var(--text-muted); font-size: var(--font-ui-small); margin: var(--size-4-1) 0; }
 .track-record-link { margin-right: var(--size-4-2); max-width: 100%; white-space: normal; }
+.track-record-current, .track-record-running { padding: var(--size-4-3); margin-bottom: var(--size-4-3); border-radius: var(--radius-m); background: var(--background-secondary); overflow-wrap: anywhere; }
+.track-record-running { border-left: 3px solid var(--interactive-accent); }
+.track-record-current .setting-item, .track-record-running .setting-item { border-top: 0; padding: var(--size-4-2) 0 0; }
+.track-record-current .setting-item-info, .track-record-running .setting-item-info { display: none; }
+.track-record-current .setting-item-control, .track-record-running .setting-item-control { justify-content: flex-start; flex-wrap: wrap; }
+.track-record-label { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-bottom: var(--size-4-1); }
+.track-record-subtle { color: var(--text-muted); font-size: var(--font-ui-small); overflow-wrap: anywhere; }
+.track-record-summary { font-weight: var(--font-semibold); }

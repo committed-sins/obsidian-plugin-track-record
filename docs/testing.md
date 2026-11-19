@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 26 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
+Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 35 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
 
 Core tests cover YAML round-trips, configurable mappings, invalid dates/offsets, daylight-saving transitions, repeated statuses, equal-time ambiguity, overlaps, duplicate IDs, conflicting destinations, exact retries, interrupted local timers, failed writes and independent device drafts.
 
@@ -29,7 +29,9 @@ Only `main.js`, `manifest.json` and `styles.css` are copied. Enable/reload manua
 5. Create overlapping time records, including on different notes. History must withhold totals and show a warning. Correct the intervals in Markdown and refresh. Invalid records must produce visible errors.
 6. Start a timer and disable/re-enable the plugin or close/reopen Obsidian. It should report an interrupted draft. **Recover interrupted timer** requires an actual end time. Cancel recovery, reopen it, then complete it.
 7. Rename/move a subject while retaining its string `id`, then stop the timer. Confirm attribution. Without an ID, test a live rename with native link updates; an offline rename can require restoring the old path. Duplicate note IDs should block new recording once indexed.
-8. Change folder/property names in settings and save another record. Earlier records should remain readable using their embedded mappings after metadata indexing; refresh history. No prior record is migrated.
+8. In settings, use different folders/tags/formats for Timer and Status, then the same folder. Check folder suggestions and filename previews. Use `#record/time` as a tag input and confirm YAML stores `record/time`. Earlier records should remain readable using retained profiles in plugin settings; no prior record is migrated.
+9. Use sidebar Start/Stop for the current note. Switch notes and start another timer: the previous local timer must end at the exact new start time. Check the running clock updates each second and remains visible while browsing another note. Toggling All notes must not change the current-note action target.
+10. Check new filenames use UTC seconds, a short suffix and the configured Timer/Status patterns. New frontmatter must not include `track_record`. Existing 0.1.0 records and pending timer saves should remain readable/recoverable with their original content.
 
 ## Mobile and synchronization — pending
 

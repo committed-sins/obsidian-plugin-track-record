@@ -1,6 +1,6 @@
 # Requirements
 
-Preview 0.1.0 implements manual records, one local timer, interrupted-save recovery and a note-history view. Decisions and limits are recorded in [architecture](architecture.md); automated and manual validation are distinguished in [testing](testing.md). Requirements below also describe later work.
+Preview 0.1.1 implements manual records without private metadata blocks, separate Timer/Status settings and naming formats, one local timer with automatic close-on-switch, interrupted-save recovery and current-note sidebar actions. Decisions and limits are recorded in [architecture](architecture.md); automated and manual validation are distinguished in [testing](testing.md). Requirements below also describe later work.
 
 ## Confirmed direction
 
