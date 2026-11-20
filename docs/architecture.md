@@ -1,6 +1,6 @@
 # Data model and architecture
 
-## Preview 0.1.4
+## Preview 0.1.5
 
 - Timer and Status records are ordinary Markdown notes. New notes have no `id` or `track_record` identity field. Their vault paths identify them internally. Existing IDs/envelopes are read for compatibility only.
 - Each type has a configurable filename base (`{type} - {timestamp}` by default), with a fixed six-character random `.{hash}.md` suffix. Never lengthen it to a UUID. A collision reports an ordinary note conflict without overwriting. No extra sync identity or collision-repair protocol is promised.
@@ -44,6 +44,10 @@ status: ongoing
 
 - New timer, manual and status timestamps use UTC. Native datetime-local fields convert local calendar input to UTC and reject nonexistent DST times. Older offset timestamps and exact legacy pending-save bytes remain unchanged.
 
+## Entry dialogs and sections
+
+Subject selections use a FuzzySuggestModal and a deduplicated set of paths; save revalidates targets. AbstractInputSuggest provides editable status suggestions from parsed status records across current and retained mappings. Ctrl/Cmd+Enter invokes the same guarded save action as the button, including frozen retries. Notes are literal Markdown under a configurable level-two heading. A link picker uses Obsidian's link-format preference relative to the destination folder; MarkdownRenderer supplies an explicit preview with a modal-owned Component lifecycle. Existing records and frozen legacy pending-save bytes are not rewritten. Timer and Status view modes share note/scope selection but separate actions, records and work totals.
+
 ## Compatibility and indexing
 
 Keep existing notes and explicit configured paths unchanged. Retained mapping profiles are normal plugin configuration; old time_start/time_end and timer.start/timer.end have compatibility profiles. Device fields never become users. A populated user/end mapping can distinguish a profile from one with missing fields; conflicting populated profiles fail. Unknown legacy envelope versions fail instead of being rewritten.
@@ -54,4 +58,4 @@ The history list is rebuildable from notes and metadata-cache candidates. Vault 
 
 Track Record writes tracking records. Templater owns general note/schema helpers. Planned Bases Excerpts relations and records functions remain read-only. Task Trace keeps its independent checkbox observation model.
 
-Later work: status/current-state projections, recursive project aggregation with cycle/duplicate handling, previewable imports, incremental indexing/performance, and measured desktop/mobile sync behavior. Wall-clock order is not causal order; notes not yet synchronized cannot be acted on. Cross-file writes and offline concurrent operations have no global transaction guarantee.
+Later work: configurable record types (labels, tags, folders, property mappings and notes headings), with interval behavior reserved for timer-capable types; status/current-state projections, recursive project aggregation with cycle/duplicate handling, previewable imports, incremental indexing/performance, and measured desktop/mobile sync behavior. Wall-clock order is not causal order; notes not yet synchronized cannot be acted on. Cross-file writes and offline concurrent operations have no global transaction guarantee.

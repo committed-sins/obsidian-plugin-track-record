@@ -13,7 +13,21 @@ export class Element
     tag = '';
     attributes = new Map<string, string>();
     events = new Map<string, () => unknown>();
+    value = '';
+    rows = 0;
+    selectionStart = 0;
+    selectionEnd = 0;
     children: Element[] = [];
+    remove(): void
+    {
+    }
+    focus(): void
+    {
+    }
+    setRangeText(value: string): void
+    {
+        this.value = value;
+    }
     setText(text: string): void
     {
         this.text = text;
@@ -115,6 +129,13 @@ export class Plugin
 }
 export class Modal
 {
+    scope = {
+        handlers: new Map<string, (event: { preventDefault(): void }) => unknown>(), register(_modifiers: string[], key: string, callback: (event: { preventDefault(): void }) => unknown)
+        {
+            this.handlers.set(key, callback);
+        }
+    };
+    modalEl = new Element();
     contentEl = new Element();
     titleEl = new Element();
     closed = false;
@@ -128,8 +149,12 @@ export class Modal
     {
         modals.push(this); this.onOpen();
     }
+    onClose(): void
+    {
+    }
     close(): void
     {
+        this.onClose();
         this.closed = true;
     }
 }
@@ -144,8 +169,14 @@ export class ItemView
 export class WorkspaceLeaf
 { }
 
+export const suggestions: AbstractInputSuggest<unknown>[] = [];
+
 export class AbstractInputSuggest<T>
 {
+    constructor(..._args: unknown[])
+    {
+        suggestions.push(this);
+    }
     setValue(_value: string): void
     {
     }
@@ -156,7 +187,7 @@ export class AbstractInputSuggest<T>
 
 export class Control
 {
-    inputEl = { type: 'text', step: '' };
+    inputEl = Object.assign(new Element(), { type: 'text', step: '' });
     text = '';
     disabled = false;
     change: (value: any) => void = () =>
@@ -202,6 +233,7 @@ export class Setting
 {
     name = '';
     controls: Control[] = [];
+    settingEl = new Element();
     constructor(_element: unknown)
     {
         settings.push(this);
@@ -241,4 +273,27 @@ export class Setting
 
 export function setIcon(): void
 {
+}
+
+export class Component
+{
+    load(): void
+    {
+    }
+    unload(): void
+    {
+    }
+}
+export class FuzzySuggestModal<T> extends Modal
+{
+    setPlaceholder(): void
+    {
+    }
+}
+export class MarkdownRenderer
+{
+    static async render(_app: unknown, markdown: string, el: Element): Promise<void>
+    {
+        el.setText(markdown);
+    }
 }

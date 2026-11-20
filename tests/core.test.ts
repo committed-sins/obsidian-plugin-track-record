@@ -435,3 +435,12 @@ test('UTC storage and local picker handle winter, summer and invalid local dates
         else process.env.TZ = previous;
     }
 });
+
+test('notes heading defaults for older settings and rejects invalid section headings', () =>
+{
+    assert.equal(validateSettings({}).notesHeading, 'Notes');
+    assert.equal(validateSettings({ notesHeading: 'Work details' }).notesHeading, 'Work details');
+    for (const notesHeading of ['', '# Notes', 'Notes\nBody', 'x'.repeat(121)]) {
+        assert.throws(() => validateSettings({ notesHeading }), /notes heading/);
+    }
+});

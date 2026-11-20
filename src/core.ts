@@ -15,6 +15,7 @@ export interface Settings
     userProperty: string;
     statusStartProperty: string;
     statusProperty: string;
+    notesHeading: string;
 }
 
 export const DEFAULTS: Settings = {
@@ -22,7 +23,7 @@ export const DEFAULTS: Settings = {
     timerFilename: '{type} - {timestamp}', statusFilename: '{type} - {timestamp}',
     timeTag: 'record/time', statusTag: 'record/status',
     timerSubjectProperty: 'contexts', statusSubjectProperty: 'contexts', startProperty: 'record.start', endProperty: 'record.end', userProperty: 'record.user',
-    statusStartProperty: 'record.start', statusProperty: 'status'
+    statusStartProperty: 'record.start', statusProperty: 'status', notesHeading: 'Notes'
 };
 
 export interface Subject
@@ -63,6 +64,7 @@ export function validateSettings(input: unknown): Settings
         if (typeof raw !== 'string') throw Error(`Invalid setting: ${key}.`);
         result[key] = raw.trim();
     }
+    if (!result.notesHeading || result.notesHeading.length > 120 || /[\r\n#\x00-\x1f]/.test(result.notesHeading)) throw Error('Use a non-empty notes heading without # or line breaks (up to 120 characters).');
     result.timerFilename = filenameBase(result.timerFilename);
     result.statusFilename = filenameBase(result.statusFilename);
     for (const folder of [result.timerFolder, result.statusFolder]) {

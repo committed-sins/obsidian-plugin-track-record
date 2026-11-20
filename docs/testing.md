@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 52 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
+Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 57 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
 
 Core tests cover YAML round-trips, configurable mappings, invalid dates/offsets, daylight-saving transitions, repeated statuses, equal-time ambiguity, overlaps, duplicate IDs, conflicting destinations, exact retries, interrupted local timers, failed writes and independent device drafts.
 
@@ -36,10 +36,18 @@ Only `main.js`, `manifest.json` and `styles.css` are copied. Enable/reload manua
 12. Configure nested record.user/start/end, then flat alternatives. Test missing, null, empty and whitespace-only ends. Status defaults to record.start and has no user/device field. Add comments, extra YAML fields and body text to an open timer, then Stop: retain them.
 13. Create multiple same-user and other-user timers. Start/Stop must close exact owner matches only. A future start or conflicting edit must prevent a replacement. Cross-file writes can partially finish on an I/O failure.
 14. Set a literal filename base without placeholders. The final name must still end in six hexadecimal characters as Base.abcdef.md; no new id/track_record property is written. A collision reports an error without expanding the suffix or overwriting.
-15. Configure Timer subjects as projects and Status subjects as contexts. Add several note paths in each dialog. Check every linked note view, global time counted once, full duration per target and the explicit description that a multi-target status applies to all listed notes. Check aliases and duplicate-target handling.
+15. Configure Timer subjects as projects and Status subjects as contexts. Select several notes in each dialog. Check every linked note view, global time counted once, full duration per target and the explicit description that a multi-target status applies to all listed notes. Check aliases and duplicate-target handling.
 16. Check the history toolbar has two persistent scope buttons, exactly one visibly selected, and a refresh icon with a tooltip. Check a wide bottom pane and a narrow sidebar. No extra Track Record heading should appear.
 
+
+17. Check Ctrl/Cmd+Enter: valid inputs save once and close, invalid inputs and write errors keep the dialog open. Retrying must use the original submission. Select multiple subjects, remove them and ensure at least one is required. Records must not appear in the subject picker.
+18. Enter repeated status values, including a custom nested status property. The editable dropdown must offer distinct existing values across all readable records and accept a new value.
+19. Set Notes heading to Work details. Enter Markdown links and insert a vault link; preview and save. Verify the exact Markdown under `## Work details`, with no source-note edits. Check section extraction with Bases Excerpts manually. Old notes must remain unchanged.
+20. Switch Timer/Status modes: only matching actions, records and summaries should appear. Changing type/scope must retain the selected subject. A timer keeps running while Status is shown.
+
 Desktop spot check (2026-11-20, preview 0.1.4): viewed the real bottom pane in Test, confirmed the compact toolbar and opened the native date/time calendar. Closed the dialog without creating a record. Mobile, narrow-pane rendering and the full manual matrix remain pending.
+
+Desktop spot check (2026-11-20, preview 0.1.5): switched to Status while an existing timer kept running; opened the fuzzy subject picker and the editable status dropdown with an existing value. Ctrl+Enter with an empty status kept the dialog open and displayed validation. Markdown preview rendered the notes heading and a link. Discarded the draft and returned to the original note without creating a record. Successful keyboard save, multiple subjects and custom headings are covered at the simulated boundary; full live acceptance, Bases Excerpts section extraction and mobile remain pending.
 
 ## Mobile and synchronization — pending
 

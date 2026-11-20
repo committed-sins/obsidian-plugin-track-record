@@ -28,3 +28,13 @@
     .track-record-modal .setting-item { flex-direction: column; align-items: stretch; gap: var(--size-4-2); }
     .track-record-modal .setting-item-control { justify-content: flex-start; }
 }
+
+.track-record-entry-modal { width: min(760px, calc(100vw - 32px)); }
+.track-record-subjects { display: flex; flex-wrap: wrap; gap: var(--size-4-2); }
+.track-record-subject { display: flex; align-items: center; gap: var(--size-4-2); max-width: 100%; padding: var(--size-4-1) var(--size-4-2); background: var(--background-secondary); border-radius: var(--radius-m); overflow-wrap: anywhere; }
+.track-record-subject button { box-shadow: none; background: transparent; padding: 0 var(--size-4-1); }
+.track-record-notes { display: block; }
+.track-record-notes .setting-item-control { margin-top: var(--size-4-2); }
+.track-record-notes textarea { width: 100%; min-height: 12rem; resize: vertical; font-family: var(--font-text); }
+.track-record-notes-preview:not(:empty) { padding: var(--size-4-3); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); overflow-wrap: anywhere; }
+.track-record-modes { width: fit-content; margin-bottom: var(--size-4-3); }

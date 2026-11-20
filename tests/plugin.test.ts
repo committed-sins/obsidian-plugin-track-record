@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { App, PluginManifest, TFile as ObsidianFile } from 'obsidian';
 import TrackRecord from '../src/main';
-import { TFile, TFolder, modals, settings, notices, Plugin as MockPlugin } from './obsidian';
+import { TFile, TFolder, modals, settings, notices, suggestions, Plugin as MockPlugin } from './obsidian';
 import { parse } from 'yaml';
 
 function fixture()
@@ -373,4 +373,112 @@ test('unconfigured-user Stop never closes an assigned user timer or adopts an ol
     const records = (await plugin.snapshot()).records;
     assert.equal(records.find(record => record.user === 'Alice')!.end, undefined);
     assert.ok(records.find(record => !record.user)!.end);
+});
+
+test('subject picker excludes records and duplicates; Ctrl+Enter saves Markdown under the configured heading', async () =>
+{
+    settings.length = 0;
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    await plugin.saveSettings({ ...plugin.settings, notesHeading: 'Work details' });
+    const other = new TFile('notes/Other.md');
+    f.files.set(other.path, other);
+    f.texts.set(other.path, 'Other note');
+    await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'status', '2026-11-19T08:00:00Z', '', 'active', ''));
+    await plugin.prepareModal('time');
+    const entry = modals.at(-1)!;
+    await settings.flatMap(setting => setting.controls).find(control => control.text === 'Add note...')!.click();
+    const picker = modals.at(-1)! as unknown as { getItems(): TFile[]; onChooseItem(file: TFile): void };
+    assert.deepEqual(picker.getItems().map(file => file.path), [other.path]);
+    picker.onChooseItem(other);
+    assert.deepEqual(picker.getItems(), []);
+    settings.find(setting => setting.name === 'Start')!.controls[0].change('2026-11-19T09:00:00');
+    settings.find(setting => setting.name === 'End')!.controls[0].change('2026-11-19T10:00:00');
+    const markdown = 'Worked with [[notes/Other]] and [reference](https://example.com).';
+    const notes = settings.find(setting => setting.name === 'Notes')!.controls[0];
+    assert.ok(notes.inputEl.rows >= 9);
+    notes.change(markdown);
+    await settings.flatMap(setting => setting.controls).find(control => control.text === 'Preview Markdown')!.click();
+    let prevented = false;
+    entry.scope.handlers.get('Enter')!({
+        preventDefault: () =>
+        {
+            prevented = true;
+        }
+    });
+    while (plugin.busy) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(prevented, true);
+    assert.equal(entry.closed, true);
+    const timer = (await plugin.snapshot()).records.find(record => record.kind === 'time')!;
+    assert.deepEqual(timer.subjects!.map(subject => subject.path), [f.source.path, other.path]);
+    assert.ok(f.texts.get(timer.path!)!.includes('## Work details\n\n' + markdown));
+    assert.equal(f.texts.get(f.source.path), f.content);
+});
+
+test('Ctrl+Enter keeps invalid records open; subject selections can be removed', async () =>
+{
+    settings.length = 0;
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    await plugin.prepareModal('time');
+    const entry = modals.at(-1)!;
+    const nodes = (node: import('./obsidian').Element): import('./obsidian').Element[] => [node, ...node.children.flatMap(nodes)];
+    const remove = nodes(entry.contentEl).find(node => node.tag === 'button' && node.text === '\u00d7')!;
+    remove.events.get('click')!();
+    entry.scope.handlers.get('Enter')!({
+        preventDefault: () =>
+        {
+        }
+    });
+    while (plugin.busy) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(entry.closed, false);
+    assert.equal(f.texts.size, 1);
+    assert.ok(nodes(entry.contentEl).some(node => /Link at least one/.test(node.text)));
+});
+
+test('status suggestions collect distinct configured record values while allowing new values', async () =>
+{
+    settings.length = 0;
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    await plugin.saveSettings({ ...plugin.settings, statusProperty: 'record.status' });
+    for (const status of ['active', 'planned', 'active']) {
+        await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'status', '2026-11-19T08:00:00Z', '', status, ''));
+    }
+    await plugin.prepareModal('status');
+    const suggest = suggestions.at(-1)! as unknown as { getSuggestions(query: string): string[]; selectSuggestion(value: string): void };
+    assert.deepEqual(suggest.getSuggestions(''), ['active', 'planned']);
+    assert.deepEqual(suggest.getSuggestions('ACT'), ['active']);
+    suggest.selectSuggestion('active');
+    settings.find(setting => setting.name === 'Status')!.controls[0].change('custom value');
+    await settings.flatMap(setting => setting.controls).find(control => control.text === 'Save record')!.click();
+    assert.equal(modals.at(-1)!.closed, true);
+    assert.ok((await plugin.snapshot()).records.some(record => record.status === 'custom value'));
+});
+
+test('history separates timer and status actions, records and totals without changing note scope', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    const subject = await plugin.subject(f.source);
+    await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T09:00:00Z', '2026-11-19T10:00:00Z', '', ''));
+    await plugin.saveEntry(plugin.newEntry(subject, 'status', '2026-11-19T09:00:00Z', '', 'ongoing', ''));
+    const view = (plugin as unknown as MockPlugin).views.get('track-record-history')!({}) as unknown as { refresh(): Promise<void>; contentEl: import('./obsidian').Element };
+    const nodes = (node: import('./obsidian').Element): import('./obsidian').Element[] => [node, ...node.children.flatMap(nodes)];
+    settings.length = 0;
+    await view.refresh();
+    assert.equal(nodes(view.contentEl).some(node => node.text === 'Status \u00b7 ongoing'), false);
+    assert.equal(settings.flatMap(setting => setting.controls).some(control => control.text === 'Record status'), false);
+    nodes(view.contentEl).find(node => node.tag === 'button' && node.text === 'Status')!.events.get('click')!();
+    settings.length = 0;
+    await view.refresh();
+    assert.ok(nodes(view.contentEl).some(node => node.text === 'Status \u00b7 ongoing'));
+    assert.equal(nodes(view.contentEl).some(node => /Recorded work|Timer \u00b7/.test(node.text)), false);
+    assert.equal(settings.flatMap(setting => setting.controls).some(control => control.text === 'Start timer'), false);
+    assert.ok(settings.flatMap(setting => setting.controls).some(control => control.text === 'Record status'));
+    assert.equal(plugin.selected!.path, f.source.path);
 });

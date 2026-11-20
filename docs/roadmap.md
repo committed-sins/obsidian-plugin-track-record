@@ -63,6 +63,13 @@
 - [x] Remove redundant view heading, group note actions and expose persistent history scope buttons with refresh icon.
 - [x] Pass 52 tests and inspect the bottom-pane layout and native calendar in Test. Mobile and full user acceptance remain pending.
 
+### Preview 0.1.5 refinements
+
+- [x] Save-and-close shortcut, native subject picker and editable status suggestions.
+- [x] Larger Markdown notes with link insertion, preview and configurable section heading.
+- [x] Separate Timer and Status view modes; pass 57 tests and spot-check the real Test UI.
+- [ ] Design configurable record types beyond status; keep interval behavior explicit per type.
+
 ## 4. Validation and release
 
 - [x] Deploy development preview 0.1.0 to the authorized Test vault (2026-11-19), preserving activation and settings.

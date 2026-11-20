@@ -4,13 +4,15 @@
 
 Track Record records work intervals and note status events as linked Markdown records in your vault.
 
-**Development preview 0.1.4. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
+**Development preview 0.1.5. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
 
 ## Preview features
 
 - Start/stop a timer across devices for the current optional user. Without a configured user, only unassigned timers are closed. Starting closes matching open timers at the replacement's start time.
-- Add manual time records and explicit status events, including repeated visits to a status.
-- Open the history sidebar for the selected note or all records. Inspect work totals, record links and warnings about overlaps, duplicate IDs and tied status times.
+- Add manual time records and explicit status events in separate dialogs. Ctrl+Enter (Cmd+Enter on macOS) saves and closes only on success.
+- Choose subject notes with Obsidian's fuzzy note picker; remove individual selections. The status input suggests distinct values from all readable status records, using their configured property paths, while accepting new values.
+- Write Markdown notes in a larger field, insert note links with the native picker and preview them. New records always include a level-two notes heading (Settings: **Notes heading**, default **Notes**) for section extraction.
+- Switch the history view between Timer and Status, then choose the selected note or all notes. Inspect work totals, record links and warnings about overlaps, duplicate IDs and tied status times.
 - Reconstruct running timers from Markdown after reload/shutdown, without a persistent local timer list.
 - Configure Timer and Status separately: folder, identifying tag and filename format. They can share a folder. Earlier property/tag mappings are retained in plugin settings, not in the Markdown notes.
 
@@ -70,7 +72,7 @@ node scripts/deploy.mjs /path/to/Test
 
 Artifacts are built into `dist/`. Deployment accepts only a vault named `Test`, copying `main.js`, `manifest.json` and `styles.css` into `.obsidian/plugins/track-record`. Settings, activation, workspace and records are preserved. Enable/reload manually in Test.
 
-TypeScript, Allman checks, build and 52 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
+TypeScript, Allman checks, build and 57 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
 
 ## Direction beyond the preview
 
