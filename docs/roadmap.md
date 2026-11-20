@@ -37,6 +37,14 @@
 
 ## 2. Status capture and history
 
+### Preview 0.1.3 refinements
+
+- [x] Replace device/reset-all ownership with optional current-user matching; no user closes only unassigned timers.
+- [x] Default Timer/Status effective times to record.start, Timer end/user to record.end and record.user.
+- [x] Fixed .{hash}.md suffix outside the editable base; no UUID/record-ID property or suffix expansion.
+- [x] Separate subject settings, multiple targets, full per-target duration and single global counting.
+- [x] Pass 51 automated tests; keep existing records/drafts without automatic migration.
+
 - [x] Add explicit status-record commands and a note history view; source-note projection remains deferred.
 - Add optional property observation only after defining effective/observed times and projection ownership.
 - Detect ambiguous transitions, concurrent changes and delayed sync.

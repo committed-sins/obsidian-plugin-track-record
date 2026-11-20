@@ -279,21 +279,22 @@ test('invalid saved settings pause commands instead of silently writing with def
     assert.ok(notices.some(notice => notice.includes('Save valid Track Record settings')));
 });
 
-test('running timers survive reload through Markdown; only the device name is saved locally', async () =>
+test('running timers survive reload; an optional current user stays local', async () =>
 {
     const f = fixture();
     const plugin = f.plugin();
     await plugin.onload();
-    plugin.saveDeviceName('Desktop');
+    plugin.saveUserName('Desktop');
     await plugin.startTimer();
     const active = plugin.currentTimer()!;
     assert.ok(active.path);
-    assert.match(f.texts.get(active.path!)!, /device: Desktop/);
-    assert.deepEqual([...f.state.keys()], ['track-record:device-name:v1']);
+    assert.match(f.texts.get(active.path!)!, /user: Desktop/);
+    assert.deepEqual([...f.state.keys()], ['track-record:user-name:v1']);
+    assert.ok(!f.texts.get(active.path!)!.includes('\nid:'));
     const reloaded = f.plugin();
     await reloaded.onload();
     await reloaded.snapshot();
-    assert.equal(reloaded.deviceName, 'Desktop');
+    assert.equal(reloaded.userName, 'Desktop');
     assert.equal(reloaded.currentTimer()!.id, active.id);
     const when = new Date(Date.parse(active.start) + 1000).toISOString();
     await reloaded.closeTimers([reloaded.currentTimer()!], when);
@@ -301,42 +302,39 @@ test('running timers survive reload through Markdown; only the device name is sa
     assert.equal(reloaded.currentTimer(), null);
 });
 
-test('Start closes every own open timer and leaves other device timers open by default', async () =>
+test('Start closes the same user across devices and leaves other users open', async () =>
 {
     const f = fixture();
     const plugin = f.plugin();
     await plugin.onload();
-    plugin.saveDeviceName('Desktop');
+    plugin.saveUserName('Desktop');
     const subject = await plugin.subject(f.source);
-    for (const device of ['Desktop', 'Desktop', 'Phone']) {
-        await plugin.saveEntry({ ...plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true), device });
+    for (const user of ['Desktop', 'Desktop', 'Phone']) {
+        await plugin.saveEntry({ ...plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true), user });
     }
     await plugin.startTimer();
     const records = (await plugin.snapshot()).records;
     const closed = records.filter(record => record.end);
     assert.equal(closed.length, 2);
-    assert.equal(records.filter(record => !record.end && record.device === 'Phone').length, 1);
+    assert.equal(records.filter(record => !record.end && record.user === 'Phone').length, 1);
     assert.ok(closed.every(record => record.end === plugin.currentTimer()!.start));
-    plugin.settings.resetAllTimersActive = true;
-    // A direct end-time argument keeps this test independent of clock resolution.
-    const next = new Date(Date.parse(plugin.currentTimer()!.start) + 1000).toISOString();
-    await plugin.closeTimers(records.filter(record => !record.end), next);
-    await plugin.snapshot();
-    assert.equal(plugin.activeTimers.length, 0);
 });
 
-test('reset-all setting makes Start close other-device timers too', async () =>
+test('no configured user closes only unassigned timers, even with a legacy reset-all flag', async () =>
 {
     const f = fixture();
     const plugin = f.plugin();
     await plugin.onload();
-    plugin.saveDeviceName('Desktop');
-    await plugin.saveEntry({ ...plugin.newEntry(await plugin.subject(f.source), 'time', '2026-11-19T08:00:00Z', '', '', '', true), device: 'Phone' });
-    plugin.settings.resetAllTimersActive = true;
+    assert.equal(plugin.userName, '');
+    const subject = await plugin.subject(f.source);
+    await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true));
+    await plugin.saveEntry({ ...plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true), user: 'Alice' });
+    (plugin.settings as unknown as { resetAllTimersActive: boolean }).resetAllTimersActive = true;
     await plugin.startTimer();
     const records = (await plugin.snapshot()).records;
-    assert.ok(records.find(record => record.device === 'Phone')!.end);
-    assert.equal(records.filter(record => !record.end).length, 1);
+    assert.equal(records.find(record => record.user === 'Alice')!.end, undefined);
+    assert.equal(records.filter(record => !record.end).length, 2);
+    assert.equal(records.filter(record => !record.user && record.end).length, 1);
 });
 
 test('Start preflights every selected timer before closing any of them', async () =>
@@ -351,4 +349,20 @@ test('Start preflights every selected timer before closing any of them', async (
     const records = (await plugin.snapshot()).records;
     assert.equal(records.length, 2);
     assert.ok(records.every(record => !record.end));
+});
+
+test('unconfigured-user Stop never closes an assigned user timer or adopts an old device name', async () =>
+{
+    const f = fixture();
+    f.state.set('track-record:device-name:v1', 'Alice');
+    const plugin = f.plugin();
+    await plugin.onload();
+    assert.equal(plugin.userName, '');
+    const subject = await plugin.subject(f.source);
+    await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true));
+    await plugin.saveEntry({ ...plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true), user: 'Alice' });
+    await plugin.stopTimer();
+    const records = (await plugin.snapshot()).records;
+    assert.equal(records.find(record => record.user === 'Alice')!.end, undefined);
+    assert.ok(records.find(record => !record.user)!.end);
 });

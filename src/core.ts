@@ -8,21 +8,21 @@ export interface Settings
     statusFilename: string;
     timeTag: string;
     statusTag: string;
-    subjectProperty: string;
+    timerSubjectProperty: string;
+    statusSubjectProperty: string;
     startProperty: string;
     endProperty: string;
-    deviceProperty: string;
+    userProperty: string;
     statusStartProperty: string;
     statusProperty: string;
-    resetAllTimersActive: boolean;
 }
 
 export const DEFAULTS: Settings = {
     timerFolder: 'records/track-record', statusFolder: 'records/track-record',
-    timerFilename: '{type} - {timestamp} - {hash}', statusFilename: '{type} - {timestamp} - {hash}',
+    timerFilename: '{type} - {timestamp}', statusFilename: '{type} - {timestamp}',
     timeTag: 'record/time', statusTag: 'record/status',
-    subjectProperty: 'contexts', startProperty: 'timer.start', endProperty: 'timer.end', deviceProperty: 'timer.device',
-    statusStartProperty: 'time_start', statusProperty: 'status', resetAllTimersActive: false
+    timerSubjectProperty: 'contexts', statusSubjectProperty: 'contexts', startProperty: 'record.start', endProperty: 'record.end', userProperty: 'record.user',
+    statusStartProperty: 'record.start', statusProperty: 'status'
 };
 
 export interface Subject
@@ -36,9 +36,10 @@ export interface RecordEntry
     id: string;
     kind: 'time' | 'status';
     subject: Subject;
+    subjects?: Subject[];
     start: string;
     end?: string;
-    device?: string;
+    user?: string;
     status?: string;
     created: string;
     session?: string;
@@ -46,6 +47,7 @@ export interface RecordEntry
     settings: Settings;
     path?: string;
     linkPath?: string;
+    linkPaths?: string[];
 }
 
 const RESERVED = new Set(['id', 'tags', 'created', 'track_record', '__proto__', 'constructor', 'prototype']);
@@ -56,13 +58,13 @@ export function validateSettings(input: unknown): Settings
     if (!input || typeof input !== 'object' || Array.isArray(input)) throw Error('Invalid record settings.');
     const value = input as Record<string, unknown>;
     const result = { ...DEFAULTS };
-    for (const key of Object.keys(DEFAULTS).filter(key => key !== 'resetAllTimersActive') as (Exclude<keyof Settings, 'resetAllTimersActive'>)[]) {
-        const raw = value[key] ?? ((key === 'timerFolder' || key === 'statusFolder') ? value.folder : key === 'statusStartProperty' ? value.startProperty : undefined) ?? DEFAULTS[key];
+    for (const key of Object.keys(DEFAULTS) as (keyof Settings)[]) {
+        const raw = value[key] ?? ((key === 'timerFolder' || key === 'statusFolder') ? value.folder : (key === 'timerSubjectProperty' || key === 'statusSubjectProperty') ? value.subjectProperty : key === 'statusStartProperty' ? value.startProperty : undefined) ?? DEFAULTS[key];
         if (typeof raw !== 'string') throw Error(`Invalid setting: ${key}.`);
         result[key] = raw.trim();
     }
-    if (value.resetAllTimersActive !== undefined && typeof value.resetAllTimersActive !== 'boolean') throw Error('Reset all timers must be a boolean.');
-    result.resetAllTimersActive = value.resetAllTimersActive === true;
+    result.timerFilename = filenameBase(result.timerFilename);
+    result.statusFilename = filenameBase(result.statusFilename);
     for (const folder of [result.timerFolder, result.statusFolder]) {
         if (!folder || folder.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || /[\\:*?"<>|\[\]#^\x00-\x1f]/.test(folder)) throw Error('Use a vault-relative folder without hidden folders, traversal or special characters.');
     }
@@ -73,17 +75,23 @@ export function validateSettings(input: unknown): Settings
     }
     if (result.timeTag.toLowerCase() === result.statusTag.toLowerCase()) throw Error('Timer and status tags must differ (tags are case-insensitive).');
     for (const pattern of [result.timerFilename, result.statusFilename]) {
-        if (!pattern.includes('{hash}') || /[{}]/.test(pattern.replace(/\{(type|timestamp|date|hash)\}/g, ''))) throw Error('Use filename tokens {type}, {timestamp}, {date}, {hash}; include {hash} for uniqueness.');
+        if (!pattern || /[{}]/.test(pattern.replace(/\{(type|timestamp|date)\}/g, ''))) throw Error('Use filename tokens {type}, {timestamp}, {date}. The .{hash}.md suffix is appended automatically.');
         if (/[\\/:*?"<>|\[\]#^\x00-\x1f]/.test(pattern) || pattern.startsWith('.') || /[. ]$/.test(pattern) || /\.md$/i.test(pattern)) throw Error('Enter a filename pattern without a folder or .md extension.');
         if (pattern.length > 140) throw Error('Filename pattern is too long.');
     }
-    for (const properties of [[result.subjectProperty, result.startProperty, result.endProperty, result.deviceProperty], [result.subjectProperty, result.statusStartProperty, result.statusProperty]]) {
+    for (const properties of [[result.timerSubjectProperty, result.startProperty, result.endProperty, result.userProperty], [result.statusSubjectProperty, result.statusStartProperty, result.statusProperty]]) {
         for (const property of properties) propertySegments(property);
         for (let i = 0; i < properties.length; i++) {
             if (properties.some((other, j) => i !== j && (properties[i] === other || properties[i].startsWith(other + '.')))) throw Error('Property paths must not overlap or be parents of each other.');
         }
     }
     return result;
+}
+
+export function filenameBase(value: string): string
+{
+    // Interpret the previous preview's final hash token as the now-fixed suffix.
+    return value.replace(/[ ._-]*\{hash\}$/, '').trim();
 }
 
 export function propertySegments(path: string): string[]
@@ -122,22 +130,27 @@ export function isOpenEnd(value: unknown): boolean
     return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
 }
 
-export function validateDeviceName(value: string): string
+export function validateUserName(value: string): string
 {
     const name = value.trim();
-    if (!name || name.length > 80 || /[\r\n\x00-\x1f]/.test(name)) throw Error('Enter a device name of 1–80 characters without control characters.');
+    if (name.length > 80 || /[\r\n\x00-\x1f]/.test(name)) throw Error('Enter an optional user name of at most 80 characters without control characters.');
     return name;
 }
 
-export function suggestDeviceName(hostname: () => string, fallback: string): string
+export function ownedOpenTimers(records: RecordEntry[], user: string): RecordEntry[]
 {
-    try { return validateDeviceName(hostname()); }
-    catch { return validateDeviceName(fallback); }
+    const owner = validateUserName(user);
+    return records.filter(record => record.kind === 'time' && isOpenEnd(record.end) && (record.user ?? '') === owner);
 }
 
-export function ownedOpenTimers(records: RecordEntry[], device: string, all = false): RecordEntry[]
+export function recordSubjects(record: RecordEntry): Subject[]
 {
-    return records.filter(record => record.kind === 'time' && isOpenEnd(record.end) && (all || record.device === device));
+    return [...new Map((record.subjects ?? [record.subject]).map(subject => [subject.path, subject])).values()];
+}
+
+export function relatesTo(record: RecordEntry, subject: Subject): boolean
+{
+    return recordSubjects(record).some(target => sameSubject(target, subject));
 }
 
 export function instant(value: string): number
@@ -171,25 +184,27 @@ export function validateSubject(input: unknown): Subject
 
 export function validateRecord(input: RecordEntry): RecordEntry
 {
-    if (!UUID.test(input.id) || (input.session !== undefined && !UUID.test(input.session))) throw Error('Invalid record or session ID.');
-    validateSubject(input.subject);
+    if (typeof input.id !== 'string' || !input.id || (input.session !== undefined && !UUID.test(input.session))) throw Error('Invalid record or session ID.');
+    const subjects = recordSubjects(input);
+    if (!subjects.length) throw Error('Link at least one subject note.');
+    for (const subject of subjects) validateSubject(subject);
     validateSettings(input.settings);
     instant(input.created);
     const start = instant(input.start);
     if (typeof input.note !== 'string') throw Error('Invalid record note.');
     if (input.kind === 'time') {
         if (input.end !== undefined && instant(input.end) <= start) throw Error('End must be after start.');
-        if (input.device !== undefined) validateDeviceName(input.device);
+        if (input.user !== undefined) validateUserName(input.user);
         if (input.status !== undefined) throw Error('A time record cannot contain a status.');
     } else if (input.kind === 'status') {
         if (typeof input.status !== 'string' || !input.status.trim() || input.status.length > 200 || /[\r\n\x00]/.test(input.status)) throw Error('Enter a non-empty status of at most 200 characters.');
         if (input.end !== undefined) throw Error('A status event has no end time.');
-        if (input.device !== undefined) throw Error('Status records have no device property.');
+        if (input.user !== undefined) throw Error('Status records have no user property.');
     } else throw Error('Unknown record kind.');
     return input;
 }
 
-export function recordPath(entry: RecordEntry, hashLength = 6): string
+export function recordPath(entry: RecordEntry): string
 {
     validateRecord(entry);
     if (entry.path) {
@@ -197,10 +212,12 @@ export function recordPath(entry: RecordEntry, hashLength = 6): string
         return entry.path;
     }
     const timestamp = new Date(instant(entry.start)).toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/:/g, '-');
-    const tokens: Record<string, string> = { type: entry.kind === 'time' ? 'Timer' : 'Status', timestamp, date: timestamp.slice(0, 10), hash: entry.id.replace(/-/g, '').slice(0, hashLength) };
+    const hash = entry.id.replace(/-/g, '').slice(0, 6);
+    if (!/^[0-9a-f]{6}$/i.test(hash)) throw Error('A new note needs a six-character random filename suffix.');
+    const tokens: Record<string, string> = { type: entry.kind === 'time' ? 'Timer' : 'Status', timestamp, date: timestamp.slice(0, 10) };
     const pattern = entry.kind === 'time' ? entry.settings.timerFilename : entry.settings.statusFilename;
-    const name = pattern.replace(/\{(type|timestamp|date|hash)\}/g, (_, token: string) => tokens[token]);
-    return `${entry.kind === 'time' ? entry.settings.timerFolder : entry.settings.statusFolder}/${name}.md`;
+    const name = filenameBase(pattern).replace(/\{(type|timestamp|date)\}/g, (_, token: string) => tokens[token]);
+    return `${entry.kind === 'time' ? entry.settings.timerFolder : entry.settings.statusFolder}/${name}.${hash}.md`;
 }
 
 export function frontmatter(entry: RecordEntry): Record<string, unknown>
@@ -208,13 +225,13 @@ export function frontmatter(entry: RecordEntry): Record<string, unknown>
     validateRecord(entry);
     const s = entry.settings;
     const result: Record<string, unknown> = {
-        id: entry.id, tags: [entry.kind === 'time' ? s.timeTag : s.statusTag], created: entry.created,
+        tags: [entry.kind === 'time' ? s.timeTag : s.statusTag], created: entry.created,
     };
-    setProperty(result, s.subjectProperty, [`[[${entry.subject.path.slice(0, -3)}]]`]);
+    setProperty(result, entry.kind === 'time' ? s.timerSubjectProperty : s.statusSubjectProperty, [...new Set(recordSubjects(entry).map(subject => `[[${subject.path.slice(0, -3)}]]`))]);
     setProperty(result, entry.kind === 'time' ? s.startProperty : s.statusStartProperty, entry.start);
     if (entry.kind === 'time') {
         setProperty(result, s.endProperty, entry.end ?? null);
-        if (entry.device !== undefined) setProperty(result, s.deviceProperty, entry.device);
+        if (entry.user) setProperty(result, s.userProperty, entry.user);
     } else setProperty(result, s.statusProperty, entry.status);
     return result;
 }
@@ -236,10 +253,10 @@ export function parseRecord(text: string, path: string, parseYaml: (yaml: string
             catch { /* Another retained profile can describe an older mapping. */ }
         }
         if (!matches.length) throw Error('Record tag found, but its properties do not match a known record profile.');
-        const score = (record: RecordEntry): number => (record.device === undefined ? 0 : 2) + (record.end === undefined ? 0 : 1);
+        const score = (record: RecordEntry): number => (record.user === undefined ? 0 : 2) + (record.end === undefined ? 0 : 1);
         const bestScore = Math.max(...matches.map(score));
         const best = matches.filter(record => score(record) === bestScore);
-        const signatures = new Set(best.map(record => JSON.stringify([record.id, record.kind, record.subject.path, record.start, record.end, record.device, record.status, record.created])));
+        const signatures = new Set(best.map(record => JSON.stringify([record.id, record.kind, recordSubjects(record).map(target => target.path).sort(), record.start, record.end, record.user, record.status, record.created])));
         if (signatures.size > 1) throw Error('Record matches conflicting property profiles; review its fields.');
         return best[0];
     }
@@ -260,22 +277,29 @@ function readRecord(data: Record<string, unknown>, note: string, path: string, s
     const time = normalizedTags.includes(settings.timeTag.toLowerCase());
     const status = normalizedTags.includes(settings.statusTag.toLowerCase());
     if (time === status) throw Error('Ambiguous record type tags.');
-    const subjects = getProperty(data, settings.subjectProperty);
-    if (!Array.isArray(subjects) || subjects.length !== 1 || typeof subjects[0] !== 'string') throw Error('Expected exactly one subject link.');
-    const link = /^\[\[([^\[\]#|^]+)\]\]$/.exec(subjects[0]);
-    if (!link) throw Error('Invalid subject link.');
-    const pathValue = link[1].endsWith('.md') ? link[1] : link[1] + '.md';
+    const rawSubjects = getProperty(data, time ? settings.timerSubjectProperty : settings.statusSubjectProperty);
+    const subjects = typeof rawSubjects === 'string' ? [rawSubjects] : rawSubjects;
+    if (!Array.isArray(subjects) || !subjects.length) throw Error('Link at least one subject note.');
+    const targets: Subject[] = [];
+    for (const value of subjects) {
+        const link = typeof value === 'string' ? /^\[\[([^\[\]#|^]+)(?:\|[^\[\]]*)?\]\]$/.exec(value) : null;
+        if (!link) throw Error('Invalid subject link.');
+        const target = validateSubject({ path: link[1].endsWith('.md') ? link[1] : link[1] + '.md' });
+        if (!targets.some(existing => existing.path === target.path)) targets.push(target);
+    }
+    if (meta?.subject_id) targets[0].id = String(meta.subject_id);
     const string = (value: unknown): string =>
     {
         if (typeof value !== 'string') throw Error('Expected a string property.');
         return value;
     };
     const end = time ? getProperty(data, settings.endProperty) : undefined;
-    const device = time ? getProperty(data, settings.deviceProperty) : undefined;
+    const user = time ? getProperty(data, settings.userProperty) : undefined;
+    const start = string(getProperty(data, time ? settings.startProperty : settings.statusStartProperty));
     return validateRecord({
-        id: string(data.id), kind: time ? 'time' : 'status', subject: validateSubject({ path: pathValue, ...(meta?.subject_id ? { id: string(meta.subject_id) } : {}) }),
-        start: string(getProperty(data, time ? settings.startProperty : settings.statusStartProperty)), ...(time ? { ...(isOpenEnd(end) ? {} : { end: string(end) }), ...(isOpenEnd(device) ? {} : { device: string(device) }) } : { status: string(getProperty(data, settings.statusProperty)) }),
-        created: string(data.created), ...(meta ? { session: string(meta.session) } : {}), settings, path, note
+        id: typeof data.id === 'string' ? data.id : `file:${path}`, kind: time ? 'time' : 'status', subject: targets[0], subjects: targets,
+        start, ...(time ? { ...(isOpenEnd(end) ? {} : { end: string(end) }), ...(isOpenEnd(user) ? {} : { user: validateUserName(string(user)) }) } : { status: string(getProperty(data, settings.statusProperty)) }),
+        created: typeof data.created === 'string' ? data.created : start, ...(meta ? { session: string(meta.session) } : {}), settings, path, note
     });
 }
 
@@ -298,22 +322,32 @@ export function historyWarnings(records: RecordEntry[]): string[]
         if (ids.has(entry.id)) warnings.add(`Duplicate record ID ${entry.id}; totals are withheld.`);
         ids.set(entry.id, entry);
     }
-    const intervals = records.filter(entry => entry.kind === 'time' && entry.end).map(entry => ({ start: instant(entry.start), end: instant(entry.end!) })).sort((a, b) => a.start - b.start);
-    let lastEnd = -Infinity;
-    for (const interval of intervals) {
-        if (interval.start < lastEnd) warnings.add('Overlapping work intervals; totals are withheld (including simultaneous work on different notes).');
-        lastEnd = Math.max(lastEnd, interval.end);
+    const groups = new Map<string, { start: number; end: number }[]>();
+    for (const record of records.filter(entry => entry.kind === 'time' && entry.end)) {
+        const intervals = groups.get(record.user ?? '') ?? [];
+        intervals.push({ start: instant(record.start), end: instant(record.end!) });
+        groups.set(record.user ?? '', intervals);
+    }
+    for (const intervals of groups.values()) {
+        intervals.sort((a, b) => a.start - b.start);
+        let lastEnd = -Infinity;
+        for (const interval of intervals) {
+            if (interval.start < lastEnd) warnings.add('Overlapping work intervals for the same user; totals are withheld (including simultaneous work on different notes).');
+            lastEnd = Math.max(lastEnd, interval.end);
+        }
     }
     const idTimes = new Set<string>(), pathTimes = new Set<string>(), idlessTimes = new Set<string>();
     for (const entry of records.filter(record => record.kind === 'status')) {
-        const time = instant(entry.start);
-        const pathKey = JSON.stringify([entry.subject.path, time]);
-        const idKey = JSON.stringify([entry.subject.id, time]);
-        const ambiguous = entry.subject.id ? idTimes.has(idKey) || idlessTimes.has(pathKey) : pathTimes.has(pathKey);
-        if (ambiguous) warnings.add(`Multiple status events at the same instant for ${entry.subject.path}; their order is unknown.`);
-        pathTimes.add(pathKey);
-        if (entry.subject.id) idTimes.add(idKey);
-        else idlessTimes.add(pathKey);
+        for (const subject of recordSubjects(entry)) {
+            const time = instant(entry.start);
+            const pathKey = JSON.stringify([subject.path, time]);
+            const idKey = JSON.stringify([subject.id, time]);
+            const ambiguous = subject.id ? idTimes.has(idKey) || idlessTimes.has(pathKey) : pathTimes.has(pathKey);
+            if (ambiguous) warnings.add(`Multiple status events at the same instant for ${subject.path}; their order is unknown.`);
+            pathTimes.add(pathKey);
+            if (subject.id) idTimes.add(idKey);
+            else idlessTimes.add(pathKey);
+        }
     }
     return [...warnings];
 }
@@ -321,7 +355,9 @@ export function historyWarnings(records: RecordEntry[]): string[]
 export function closeTimerText(text: string, expected: RecordEntry, end: string, parseYaml: (yaml: string) => unknown, profiles: Settings[]): string
 {
     const current = parseRecord(text, expected.path!, parseYaml, profiles);
-    if (current.kind !== 'time' || current.id !== expected.id || current.start !== expected.start || current.device !== expected.device || !sameSubject(current.subject, { ...expected.subject, path: expected.linkPath ?? expected.subject.path }) || current.settings.endProperty !== expected.settings.endProperty) throw Error('Timer changed since it was read; refresh before closing it.');
+    const currentLinks = recordSubjects(current).map(target => target.path).sort();
+    const expectedLinks = (expected.linkPaths ?? (expected.linkPath ? [expected.linkPath] : recordSubjects(expected).map(target => target.path))).slice().sort();
+    if (current.kind !== 'time' || current.id !== expected.id || current.start !== expected.start || current.user !== expected.user || JSON.stringify(currentLinks) !== JSON.stringify(expectedLinks) || current.settings.endProperty !== expected.settings.endProperty) throw Error('Timer changed since it was read; refresh before closing it.');
     if (!isOpenEnd(current.end)) {
         if (current.end === end) return text;
         throw Error('Timer was already closed with a different end time.');
@@ -347,12 +383,9 @@ export interface Writer
 export async function chooseRecordPath(writer: Writer, entry: RecordEntry, content: string): Promise<string>
 {
     if (entry.path) return recordPath(entry);
-    for (const length of [6, 10, 16, 32]) {
-        const path = recordPath(entry, length);
-        const existing = await writer.read(path);
-        if (existing === null || existing === content) return path;
-    }
-    throw Error('Filename collision; no existing record was overwritten.');
+    const path = recordPath(entry);
+    if (await writer.read(path) !== null) throw Error('A note with this filename already exists; no content was overwritten. Retry with a new record.');
+    return path;
 }
 
 export async function createOnce(writer: Writer, path: string, content: string): Promise<void>

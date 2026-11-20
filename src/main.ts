@@ -1,9 +1,9 @@
-import { AbstractInputSuggest, ItemView, Modal, Notice, Platform, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, parseYaml, stringifyYaml, type App } from 'obsidian';
-import { DEFAULTS, Timer as LegacyTimer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, hasRecordTag, historyWarnings, instant, localTimestamp, ownedOpenTimers, parseRecord, recordPath, sameSubject, suggestDeviceName, validateDeviceName, validateRecord, validateSettings, validateSubject, type RecordEntry, type Settings, type Subject, type TimerDraft, type Writer } from './core';
+import { AbstractInputSuggest, ItemView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, parseYaml, stringifyYaml, type App } from 'obsidian';
+import { DEFAULTS, Timer as LegacyTimer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, hasRecordTag, historyWarnings, instant, localTimestamp, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, sameSubject, validateUserName, validateRecord, validateSettings, validateSubject, type RecordEntry, type Settings, type Subject, type TimerDraft, type Writer } from './core';
 
 const VIEW = 'track-record-history';
 const LOCAL_KEY = 'track-record:timer:v1';
-const DEVICE_KEY = 'track-record:device-name:v1';
+const USER_KEY = 'track-record:user-name:v1';
 
 function render(record: RecordEntry): string
 {
@@ -31,7 +31,7 @@ export default class TrackRecord extends Plugin
 {
     settings: Settings = { ...DEFAULTS };
     legacyTimer!: LegacyTimer;
-    deviceName = '';
+    userName = '';
     activeTimers: RecordEntry[] = [];
     selected: Subject | null = null;
     busy = false;
@@ -57,20 +57,9 @@ export default class TrackRecord extends Plugin
             // Do not overwrite malformed saved configuration or enable writes with fallback mappings.
             this.ready = false;
         }
-        const savedDevice = this.app.loadLocalStorage(DEVICE_KEY);
-        if (savedDevice === null || savedDevice === undefined) {
-            const platform = Platform.isAndroidApp ? 'Android device' : Platform.isIosApp ? 'iOS device' : 'This device';
-            const fallback = `${platform} - ${crypto.randomUUID().slice(0, 6)}`;
-            this.deviceName = suggestDeviceName(() =>
-            {
-                if (!Platform.isDesktopApp) throw Error('Hostname unavailable.');
-                return require('node:os').hostname();
-            }, fallback);
-            this.app.saveLocalStorage(DEVICE_KEY, this.deviceName);
-        } else {
-            try { this.deviceName = validateDeviceName(savedDevice); }
-            catch (error) { new Notice(`Track Record: ${message(error)} Set this device's name in settings.`); }
-        }
+        const savedUser = this.app.loadLocalStorage(USER_KEY);
+        try { this.userName = validateUserName(savedUser ?? ''); }
+        catch (error) { new Notice(`Track Record: ${message(error)} Set the current user in settings.`); this.ready = false; }
         // Read-only compatibility path until the user explicitly recovers an old preview draft.
         this.legacyTimer = new LegacyTimer({
             read: () => this.app.loadLocalStorage(LOCAL_KEY),
@@ -229,15 +218,17 @@ export default class TrackRecord extends Plugin
 
     profiles(): Settings[]
     {
-        return [this.settings, ...this.readProfiles, validateSettings({ ...DEFAULTS, startProperty: 'time_start', endProperty: 'time_end', deviceProperty: 'device', statusStartProperty: 'time_start' })];
+        return [this.settings, ...this.readProfiles,
+        validateSettings({ ...DEFAULTS, startProperty: 'time_start', endProperty: 'time_end', statusStartProperty: 'time_start' }),
+        validateSettings({ ...DEFAULTS, startProperty: 'timer.start', endProperty: 'timer.end', statusStartProperty: 'time_start' })];
     }
 
-    saveDeviceName(value: string): void
+    saveUserName(value: string): void
     {
-        if (this.busy) throw Error('Wait for the current operation before changing this device name.');
-        const name = validateDeviceName(value);
-        this.app.saveLocalStorage(DEVICE_KEY, name);
-        this.deviceName = name;
+        if (this.busy) throw Error('Wait for the current operation before changing the current user.');
+        const name = validateUserName(value);
+        this.app.saveLocalStorage(USER_KEY, name || null);
+        this.userName = name;
         this.updateBar();
         this.refreshViews();
     }
@@ -291,13 +282,13 @@ export default class TrackRecord extends Plugin
 
     async startTimer(target?: Subject): Promise<void>
     {
-        validateDeviceName(this.deviceName);
+        validateUserName(this.userName);
         if (this.legacyTimer.get()) throw Error('Recover or discard the legacy preview timer before starting a new timer.');
         const subject = target ? await this.resolveSubject(target) : await this.subject(this.activeFile());
         const switchTime = localTimestamp();
         const snapshot = await this.snapshot();
         if (snapshot.errors.length) throw Error('Review invalid records in history before changing timers.');
-        const previous = ownedOpenTimers(snapshot.records, this.deviceName, this.settings.resetAllTimersActive);
+        const previous = ownedOpenTimers(snapshot.records, this.userName);
         await this.closeTimers(previous, switchTime);
         await this.saveEntry(this.newEntry(subject, 'time', switchTime, '', '', '', true));
         await this.snapshot();
@@ -310,10 +301,10 @@ export default class TrackRecord extends Plugin
         const end = localTimestamp();
         await this.run(async () =>
         {
-            validateDeviceName(this.deviceName);
+            validateUserName(this.userName);
             const snapshot = await this.snapshot();
             if (snapshot.errors.length) throw Error('Review invalid records in history before changing timers.');
-            const active = ownedOpenTimers(snapshot.records, this.deviceName, this.settings.resetAllTimersActive);
+            const active = ownedOpenTimers(snapshot.records, this.userName);
             if (!active.length) throw Error('No matching open timers.');
             await this.closeTimers(active, end);
             await this.snapshot();
@@ -323,7 +314,7 @@ export default class TrackRecord extends Plugin
 
     currentTimer(): RecordEntry | null
     {
-        return ownedOpenTimers(this.activeTimers, this.deviceName)[0] ?? null;
+        return ownedOpenTimers(this.activeTimers, this.userName)[0] ?? null;
     }
 
     async closeTimers(records: RecordEntry[], end: string): Promise<void>
@@ -360,7 +351,9 @@ export default class TrackRecord extends Plugin
     {
         validateRecord(entry);
         // Resolve just before writing; never mutate the subject note or its status property.
-        entry.subject = await this.resolveSubject(entry.subject);
+        const resolved = await Promise.all(recordSubjects(entry).map(subject => this.resolveSubject(subject)));
+        entry.subject = resolved[0];
+        entry.subjects = resolved;
         const writer: Writer = {
             read: async p =>
             {
@@ -383,11 +376,11 @@ export default class TrackRecord extends Plugin
         return path;
     }
 
-    newEntry(subject: Subject, kind: 'time' | 'status', start: string, end: string, status: string, note: string, openTimer = false): RecordEntry
+    newEntry(subject: Subject, kind: 'time' | 'status', start: string, end: string, status: string, note: string, openTimer = false, subjects?: Subject[]): RecordEntry
     {
         if (kind === 'time' && !openTimer && !end.trim()) throw Error('Enter an end time for a manual interval.');
         return validateRecord({
-            id: crypto.randomUUID(), kind, subject, start, ...(kind === 'time' ? { ...(openTimer ? {} : { end }), device: validateDeviceName(this.deviceName) } : { status: status.trim() }),
+            id: crypto.randomUUID(), kind, subject, ...(subjects ? { subjects } : {}), start, ...(kind === 'time' ? { ...(openTimer ? {} : { end }), ...(this.userName ? { user: validateUserName(this.userName) } : {}) } : { status: status.trim() }),
             created: localTimestamp(), session: this.session, note, settings: { ...this.settings }
         });
     }
@@ -420,10 +413,13 @@ export default class TrackRecord extends Plugin
                 if (!data?.track_record && !hasRecordTag(data, this.profiles())) continue;
                 const record = parseRecord(text, file.path, parseYaml, this.profiles());
                 record.linkPath = record.subject.path;
-                const matching = record.subject.id ? subjectsById.get(record.subject.id) ?? [] : [];
-                if (matching.length > 1) errors.push(`${file.path}: duplicate subject ID; attribution is ambiguous.`);
-                const destination = matching.length === 1 ? matching[0] : this.app.metadataCache.getFirstLinkpathDest(record.subject.path, file.path);
-                if (destination) record.subject.path = destination.path;
+                record.linkPaths = recordSubjects(record).map(target => target.path);
+                for (const target of recordSubjects(record)) {
+                    const matching = target.id ? subjectsById.get(target.id) ?? [] : [];
+                    if (matching.length > 1) errors.push(`${file.path}: duplicate subject ID; attribution is ambiguous.`);
+                    const destination = matching.length === 1 ? matching[0] : this.app.metadataCache.getFirstLinkpathDest(target.path, file.path);
+                    if (destination) target.path = destination.path;
+                }
                 records.push(record);
             } catch (error) { errors.push(`${file.path}: ${message(error)}`); }
         }
@@ -460,7 +456,7 @@ export default class TrackRecord extends Plugin
         if (!this.alive || !this.bar) return;
         try {
             const timer = this.currentTimer();
-            const state = timer ? `${this.deviceName} · ${elapsed(Date.now() - instant(timer.start))}` : 'idle';
+            const state = timer ? `${this.userName || 'Unassigned'} · ${elapsed(Date.now() - instant(timer.start))}` : 'idle';
             this.bar.setText(`Track Record: ${state}`);
             this.bar.setAttribute('aria-label', 'Open Track Record history and timer');
             for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) {
@@ -495,7 +491,12 @@ class EntryModal extends Modal
         this.contentEl.createEl('p', { text: this.subject.path });
         this.contentEl.createEl('p', { text: 'Creates a linked record. The source note and its status property are unchanged.' });
         let start = localTimestamp(), end = '', status = '', note = '';
+        let subjectNotes = this.subject.path;
         let pending: RecordEntry | null = null;
+        new Setting(this.contentEl).setName('Subject notes').setDesc(this.kind === 'status' ? 'One note path per line. This status applies to every listed note.' : 'One note path per line. This interval counts once globally and in full for each linked note.').addTextArea(text => text.setValue(subjectNotes).onChange(value =>
+        {
+            subjectNotes = value;
+        }));
         new Setting(this.contentEl).setName(this.kind === 'time' ? 'Start' : 'Effective time').setDesc('ISO timestamp including timezone.').addText(text => text.setValue(start).onChange(value =>
         {
             start = value.trim();
@@ -522,7 +523,9 @@ class EntryModal extends Modal
             await this.plugin.run(async () =>
             {
                 try {
-                    pending ??= this.plugin.newEntry(this.subject, this.kind, start, end, status, note);
+                    const subjects = subjectNotes.split(/\r?\n/).map(value => value.trim()).filter(Boolean).map(path => validateSubject({ path: path.endsWith('.md') ? path : path + '.md' }));
+                    if (!subjects.length) throw Error('Link at least one subject note.');
+                    pending ??= this.plugin.newEntry(subjects[0], this.kind, start, end, status, note, false, subjects);
                     const path = await this.plugin.saveEntry(pending);
                     saved = true;
                     new Notice(`Track Record: saved ${path}.`);
@@ -659,8 +662,8 @@ class HistoryView extends ItemView
         const current = root.createDiv({ cls: 'track-record-current' });
         current.createEl('div', { text: 'Current note', cls: 'track-record-label' });
         current.createEl('strong', { text: selected ? selected.path.replace(/\.md$/i, '') : 'Open a note to start tracking' });
-        const ownTimers = ownedOpenTimers(snapshot.records, this.plugin.deviceName);
-        const runningHere = selected && ownTimers.some(timer => sameSubject(timer.subject, selected));
+        const ownTimers = ownedOpenTimers(snapshot.records, this.plugin.userName);
+        const runningHere = selected && ownTimers.some(timer => relatesTo(timer, selected));
         if (selected) {
             new Setting(current).addButton(button => button.setButtonText(runningHere ? 'Stop timer' : ownTimers.length ? 'Start timer here' : 'Start timer').setCta().setDisabled(this.plugin.busy).onClick(async () =>
             {
@@ -673,10 +676,10 @@ class HistoryView extends ItemView
         for (const timer of this.plugin.activeTimers) {
             const active = root.createDiv({ cls: 'track-record-running' });
             this.clocks.set(timer.id, active.createEl('strong'));
-            active.createEl('div', { text: timer.device ?? 'Device not recorded', cls: 'track-record-label' });
-            active.createEl('div', { text: timer.subject.path.replace(/\.md$/i, ''), cls: 'track-record-subtle' });
+            active.createEl('div', { text: timer.user ?? 'No user', cls: 'track-record-label' });
+            active.createEl('div', { text: recordSubjects(timer).map(target => target.path.replace(/\.md$/i, '')).join(', '), cls: 'track-record-subtle' });
             active.createEl('div', { text: `Started ${timer.start}`, cls: 'track-record-subtle' });
-            if ((timer.device === this.plugin.deviceName || this.plugin.settings.resetAllTimersActive) && !runningHere) new Setting(active).addButton(button => button.setButtonText('Stop timer').onClick(() => this.plugin.stopTimer()));
+            if ((timer.user ?? '') === this.plugin.userName && !runningHere) new Setting(active).addButton(button => button.setButtonText('Stop timer').onClick(() => this.plugin.stopTimer()));
         }
         this.updateClock();
         try {
@@ -688,7 +691,7 @@ class HistoryView extends ItemView
             this.allRecords = !this.allRecords;
             return this.refresh();
         })).addButton(button => button.setButtonText('Refresh').onClick(() => this.refresh()));
-        const records = snapshot.records.filter(record => this.allRecords || !selected || sameSubject(record.subject, selected));
+        const records = snapshot.records.filter(record => this.allRecords || !selected || relatesTo(record, selected));
         const warnings = [...snapshot.errors, ...historyWarnings(snapshot.records)];
         for (const warning of warnings) root.createEl('p', { text: warning, cls: 'track-record-warning' });
         const ambiguousTime = snapshot.errors.length > 0 || warnings.some(warning => /totals are withheld/.test(warning));
@@ -699,13 +702,16 @@ class HistoryView extends ItemView
             const row = root.createDiv({ cls: 'track-record-entry' });
             row.createEl('strong', { text: record.kind === 'time' ? `Timer · ${record.end ? elapsed(duration(record)) : 'Open'}` : `Status · ${record.status}` });
             row.createEl('div', { text: record.start + (record.end ? ` → ${record.end}` : '') });
-            if (record.kind === 'time' && record.device) row.createEl('div', { text: record.device });
+            if (record.kind === 'time' && record.user) row.createEl('div', { text: record.user });
+            if (recordSubjects(record).length > 1) row.createEl('div', { text: 'Shared record · counts once in the all-notes total' });
             if (this.allRecords || !selected) {
-                const source = row.createEl('button', { text: record.subject.path.replace(/\.md$/i, ''), cls: 'track-record-link' });
-                source.addEventListener('click', () =>
-                {
-                    void this.plugin.app.workspace.openLinkText(record.subject.path, record.path ?? '', false);
-                });
+                for (const target of recordSubjects(record)) {
+                    const source = row.createEl('button', { text: target.path.replace(/\.md$/i, ''), cls: 'track-record-link' });
+                    source.addEventListener('click', () =>
+                    {
+                        void this.plugin.app.workspace.openLinkText(target.path, record.path ?? '', false);
+                    });
+                }
             }
             const edit = row.createEl('button', { text: 'Open record' });
             edit.addEventListener('click', () =>
@@ -754,11 +760,11 @@ class RecordSettings extends PluginSettingTab
         this.containerEl.createEl('h2', { text: 'Track Record' });
         this.containerEl.createEl('p', { text: 'Timer and status records can share a folder or use separate folders. Tags identify the record type wherever a file is stored.' });
         const draft = { ...this.plugin.settings };
-        let deviceName = this.plugin.deviceName;
-        this.containerEl.createEl('h3', { text: 'This device' });
-        new Setting(this.containerEl).setName('Device name').setDesc('Saved only on this device. Suggested once from the desktop hostname; otherwise a platform label with a short unique suffix. Use a distinct name per device; changing it does not rename existing records.').addText(text => text.setValue(deviceName).onChange(value =>
+        let userName = this.plugin.userName;
+        this.containerEl.createEl('h3', { text: 'Current user' });
+        new Setting(this.containerEl).setName('User name').setDesc('Optional local setting. Use the same name on your devices. Empty closes only timers without a user; a configured name closes only that user’s timers. This is an organizational label, not access control.').addText(text => text.setValue(userName).onChange(value =>
         {
-            deviceName = value;
+            userName = value;
         }));
         for (const kind of ['time', 'status'] as const) {
             this.containerEl.createEl('h3', { text: kind === 'time' ? 'Timer' : 'Status' });
@@ -792,45 +798,32 @@ class RecordSettings extends PluginSettingTab
                 draft[tagKey] = value;
                 updatePreview();
             }));
-            new Setting(this.containerEl).setName('Filename format').setDesc('Tokens: {type}, {timestamp}, {date}, {hash}. Include {hash}; omit .md. Timestamp is UTC, without milliseconds, using filename-safe hyphens.').addText(text => text.setValue(draft[filenameKey]).onChange(value =>
+            new Setting(this.containerEl).setName('Filename format').setDesc('Editable base: {type}, {timestamp}, {date}. A fixed .{hash}.md suffix is always appended. Timestamp is UTC to seconds.').addText(text => text.setValue(draft[filenameKey]).onChange(value =>
             {
                 draft[filenameKey] = value;
                 updatePreview();
             }));
             const labels = kind === 'time'
-                ? { deviceProperty: 'Device property', startProperty: 'Start property', endProperty: 'End property' }
-                : { statusStartProperty: 'Effective-time property', statusProperty: 'Status value property' };
-            for (const key of Object.keys(labels) as (Exclude<keyof Settings, 'resetAllTimersActive'>)[]) {
-                new Setting(this.containerEl).setName(labels[key as keyof typeof labels]!).setDesc('Dot notation creates nested YAML, e.g. timer.start. A flat name such as time_start works too.').addText(text => text.setValue(draft[key]).onChange(value =>
+                ? { timerSubjectProperty: 'Subject link property', userProperty: 'User property', startProperty: 'Start property', endProperty: 'End property' }
+                : { statusSubjectProperty: 'Subject link property', statusStartProperty: 'Effective-time property', statusProperty: 'Status value property' };
+            for (const key of Object.keys(labels) as (keyof Settings)[]) {
+                new Setting(this.containerEl).setName(labels[key as keyof typeof labels]!).setDesc('Dot notation creates nested YAML, e.g. record.start. Flat names work too. Subject suggestions: contexts or projects; links are stored as a list.').addText(text => text.setValue(draft[key]).onChange(value =>
                 {
                     draft[key] = value;
                     updatePreview();
                 }));
             }
-            if (kind === 'time') new Setting(this.containerEl).setName('Reset all active timers').setDesc('Off: Start/Stop close only open timers whose device matches this device name. On: close open timers from all devices currently present in the vault. End is considered open when missing, null or empty.').addToggle(toggle => toggle.setValue(draft.resetAllTimersActive).onChange(value =>
-            {
-                draft.resetAllTimersActive = value;
-            }));
             updatePreview();
-        }
-        const properties = this.containerEl.createEl('details');
-        properties.createEl('summary', { text: 'Properties shared by Timer and Status' });
-        const labels = { subjectProperty: 'Subject link property' };
-        for (const key of Object.keys(labels) as (keyof typeof labels)[]) {
-            new Setting(properties).setName(labels[key]).addText(text => text.setValue(draft[key]).onChange(value =>
-            {
-                draft[key] = value;
-            }));
         }
         const feedback = this.containerEl.createEl('p');
         new Setting(this.containerEl).addButton(button => button.setButtonText('Save settings').setCta().onClick(async () =>
         {
             try {
                 if (this.plugin.busy) throw Error('Wait for the current write.');
-                validateDeviceName(deviceName);
+                validateUserName(userName);
                 await this.plugin.saveSettings(draft);
-                this.plugin.saveDeviceName(deviceName);
-                feedback.setText('Saved. Device name stays local; open timers are discovered from Markdown records. Existing records were not migrated.');
+                this.plugin.saveUserName(userName);
+                feedback.setText('Saved. User name stays local; records were not migrated.');
             } catch (error) { feedback.setText(message(error)); }
         }));
     }

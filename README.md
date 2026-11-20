@@ -4,11 +4,11 @@
 
 Track Record records work intervals and note status events as linked Markdown records in your vault.
 
-**Development preview 0.1.2. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
+**Development preview 0.1.3. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
 
 ## Preview features
 
-- Start/stop a timer for the current note directly in the sidebar. A start closes all matching open timer notes at the new start time: normally this device only, optionally every device currently present in the vault.
+- Start/stop a timer across devices for the current optional user. Without a configured user, only unassigned timers are closed. Starting closes matching open timers at the replacement's start time.
 - Add manual time records and explicit status events, including repeated visits to a status.
 - Open the history sidebar for the selected note or all records. Inspect work totals, record links and warnings about overlaps, duplicate IDs and tied status times.
 - Reconstruct running timers from Markdown after reload/shutdown, without a persistent local timer list.
@@ -20,41 +20,43 @@ Use ISO timestamps with an explicit timezone, e.g. `2026-11-19T09:00:00+01:00`. 
 
 **Source notes remain unchanged.** Recording a status does not update the source note's `status` property. The preview has no automatic property observer, source-status projection, status-duration formulas or project aggregation. Work duration is separate from time spent in a status.
 
-Both default folders are `records/track-record`. Records have a UUID, type tag, creation timestamp, single subject wikilink and ordinary time/status properties. They contain no `track_record` block or private subject/session metadata. Existing records remain readable without rewriting them. Existing source-note IDs are read, never assigned or changed.
+Both default folders are `records/track-record`. New records have a type tag, creation timestamp, subject wikilink list and ordinary time/status properties. No record ID/UUID or `track_record` metadata is written. Existing records remain readable without rewriting them; existing source-note IDs are read, never assigned or changed. A note's path identifies it internally; the plugin does not promise extra sync collision semantics beyond ordinary vault notes.
 
-### Device and nested properties
+### Optional user and nested properties
 
-**This device → Device name** is saved only in Obsidian's vault-specific local storage. It is suggested once from the desktop hostname. Where a hostname is unavailable (including mobile), a platform label plus a short suffix is used. Edit the suggestion as desired; use a distinct name for each device. Devices with the same name are intentionally treated as the same owner. Renaming this setting does not rename device values in existing timer notes.
+**Current user → User name** is an optional local setting. Use the same name across your devices. A configured user closes only that exact user's open timers; no configured user closes only timers without a user. Empty/null/missing user values are unassigned. The old device name and reset-all flag are ignored, never converted into a user. There is no access-control claim: users with vault write access can edit a timer's note directly.
 
 Property settings support dot notation, with these timer defaults for new configurations:
 
 ```yaml
-timer:
-  device: My desktop
+record:
+  user: Alice
   start: "2026-11-19T09:00:00+01:00"
   end: null
 ```
 
-Configure `timer.device`, `timer.start` and `timer.end`, or flat names such as `device`, `time_start` and `time_end`. Nested subject/status properties are also supported. Overlapping paths and reserved/prototype keys are rejected. Status retains its separate effective-time property (`time_start` by default) and has no device field.
+Configure `record.user`, `record.start` and `record.end`, or flat names such as `user`, `time_start` and `time_end`. With no configured user the user property is omitted. Status also defaults to `record.start` as its effective time but has no user/device field. Overlapping paths and reserved/prototype keys are rejected. Existing configured paths are preserved rather than silently migrated.
 
-A timer is open when its configured end property is missing, `null`, empty or whitespace-only. Start and Stop re-read records and filter `(device === thisDevice || resetAllTimersActive) && endIsOpen`. **Reset all active timers** is off by default. Starting writes an open note immediately; stopping updates its end field using a guarded `Vault.process` write, preserving body, comments and unrelated fields. If a selected timer cannot be closed, no replacement is started. All candidates are preflighted, but writes across several notes are not one atomic transaction: an I/O failure can leave some already closed. Timers on devices not yet synchronized are necessarily invisible to this scan.
+A timer is open when its configured end property is missing, `null`, empty or whitespace-only. Start and Stop re-read records and match the current optional user, including unassigned-to-unassigned only. Starting writes an open note immediately; stopping updates its end using a guarded `Vault.process` write, preserving body, comments and unrelated fields. If a selected timer cannot be closed, no replacement is started. Candidates are preflighted, but writes across several notes are not atomic: an I/O failure can leave some already closed. Timers not yet synchronized are invisible to the scan.
+
+Timer and Status have separate subject-link settings, both defaulting to `contexts`. `projects`, `project` or nested property paths are valid alternatives. Values are written as lists; reading also accepts one scalar wikilink. The manual dialog accepts one note path per line. Multiple Timer links assign the full interval to each target while counting it once globally; do not add per-note/project subtotals as if they were disjoint work. Multiple Status links assert the same status for every listed target, explicitly described by the dialog. Native link aliases are supported and duplicate targets are ignored.
 
 Timer and Status settings use separate **Save in folder** (vault-relative filesystem path, with folder suggestions) and **Identify by tag** (Obsidian tag) controls. A slash in a tag denotes a tag hierarchy, not a folder. The settings accept an optional leading `#`; YAML stores a normal `tags` list without it. Tags are case-insensitive.
 
-The default filename format for both kinds is `{type} - {timestamp} - {hash}`:
+The editable default filename base for both kinds is `{type} - {timestamp}`. The plugin always appends `.{hash}.md`:
 
 ```text
-Timer - 2026-11-19T08-00-00Z - a1b2c3.md
-Status - 2026-11-19T08-00-00Z - d4e5f6.md
+Timer - 2026-11-20T08-00-00Z.a1b2c3.md
+Status - 2026-11-20T08-00-00Z.d4e5f6.md
 ```
 
-`{timestamp}` is UTC to seconds, without milliseconds; colons become hyphens for Windows-safe names. `{date}` is its UTC calendar date. `{type}` is Timer or Status. `{hash}` is a six-character UUID prefix (not a cryptographic content hash); it expands if a filename already exists with different content. Each type can use its own pattern. Include `{hash}` and omit the `.md` extension. Ordinary timestamp properties retain their full precision and timezone.
+`{timestamp}` is UTC to seconds, without milliseconds; colons become hyphens for Windows-safe names. `{date}` is its UTC calendar date. `{type}` is Timer or Status. The fixed suffix is six random hexadecimal characters, not a content hash. It is never expanded into a UUID. A filename collision is reported without overwriting or adding identity properties. Retry as a new record or resolve the note collision. Previous trailing `{hash}` patterns are interpreted as the new fixed suffix. Ordinary timestamp properties retain their precision and timezone.
 
 Running timers are ordinary open Markdown records; no new local draft/session state is stored. Reloading or switching devices does not invent an end time. Idle/sleep time is not automatically subtracted; the interval ends only when explicitly stopped/switched or edited. The previous preview's local draft, if present, is preserved and requires explicit **Recover legacy timer** or discard before new timers can start. An interrupted legacy save retries its exact original bytes and path.
 
 Devices create independent records. Overlaps are flagged rather than merged; totals are withheld if scanned records overlap, have duplicate IDs or cannot be parsed. There is no cross-device timer lock or exactly-once guarantee for separate manual submissions. Tied status events have no inferred causal order.
 
-Subject relationships come from wikilinks. Native link updates remain Obsidian's responsibility. Duplicate source IDs known to the metadata cache block recording. Retained profiles in plugin settings must be kept/synchronized if older records use customized tags or property names. Device names stay local regardless of settings sync. Vault file events refresh the timer list after a short debounce; clock ticks do not rescan files. Large-vault and live mobile behavior remain unverified.
+Subject relationships come from wikilinks. Native link updates remain Obsidian's responsibility. Duplicate source IDs known to the metadata cache block recording. Retained profiles in plugin settings must be kept/synchronized if older records use customized tags or property names. The current-user setting stays local; enter the same name on your other devices. Vault file events refresh the timer list after a short debounce; clock ticks do not rescan files. Large-vault and live mobile behavior remain unverified.
 
 ## Build and test deployment
 
@@ -68,7 +70,7 @@ node scripts/deploy.mjs /path/to/Test
 
 Artifacts are built into `dist/`. Deployment accepts only a vault named `Test`, copying `main.js`, `manifest.json` and `styles.css` into `.obsidian/plugins/track-record`. Settings, activation, workspace and records are preserved. Enable/reload manually in Test.
 
-TypeScript, Allman checks, build and 45 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
+TypeScript, Allman checks, build and 51 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
 
 ## Direction beyond the preview
 

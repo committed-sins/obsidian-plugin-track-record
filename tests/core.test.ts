@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, stringify } from 'yaml';
-import { DEFAULTS, Timer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, getProperty, historyWarnings, instant, isOpenEnd, localTimestamp, ownedOpenTimers, parseRecord, recordPath, sameSubject, setProperty, suggestDeviceName, timerDraft, validateDeviceName, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
+import { DEFAULTS, Timer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, getProperty, historyWarnings, instant, isOpenEnd, localTimestamp, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, sameSubject, setProperty, timerDraft, validateUserName, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
 
-const A = '00000000-0000-4000-8000-000000000001';
-const B = '00000000-0000-4000-8000-000000000002';
+const A = '11111111-0000-4000-8000-000000000001';
+const B = '22222222-0000-4000-8000-000000000002';
 const SESSION = '00000000-0000-4000-8000-000000000003';
 const NEXT_SESSION = '00000000-0000-4000-8000-000000000004';
 
@@ -69,7 +69,7 @@ test('reject impossible dates, ambiguous local times, invalid offsets and non-po
 
 test('custom mappings are read through profiles kept in plugin settings', () =>
 {
-    const original = entry({ settings: { ...DEFAULTS, timerFolder: 'other/records', startProperty: 'began', endProperty: 'ended', subjectProperty: 'subjects', timeTag: 'work/interval' } });
+    const original = entry({ settings: { ...DEFAULTS, timerFolder: 'other/records', startProperty: 'began', endProperty: 'ended', timerSubjectProperty: 'subjects', timeTag: 'work/interval' } });
     const parsed = parseRecord(render(original), recordPath(original), parse, [DEFAULTS, original.settings]);
     assert.deepEqual(parsed.settings, original.settings);
     assert.equal(parsed.start, original.start);
@@ -78,7 +78,7 @@ test('custom mappings are read through profiles kept in plugin settings', () =>
 test('invalid folder, reserved fields, duplicate mappings and tags are rejected', () =>
 {
     for (const timerFolder of ['../records', '/records', '.obsidian/records', 'records//time', 'C:/records', 'records\\time']) assert.throws(() => validateSettings({ ...DEFAULTS, timerFolder }));
-    for (const startProperty of ['id', 'tags', 'created', '__proto__', 'track_record', 'timer.end', 'timer']) assert.throws(() => validateSettings({ ...DEFAULTS, startProperty }));
+    for (const startProperty of ['id', 'tags', 'created', '__proto__', 'track_record', 'record.end', 'record']) assert.throws(() => validateSettings({ ...DEFAULTS, startProperty }));
     assert.equal(validateSettings({ ...DEFAULTS, timeTag: '#time' }).timeTag, 'time');
     assert.throws(() => validateSettings({ ...DEFAULTS, timeTag: DEFAULTS.statusTag }));
     assert.throws(() => validateSettings({ ...DEFAULTS, timeTag: DEFAULTS.statusTag.toUpperCase() }));
@@ -157,7 +157,7 @@ test('one local timer, no vault file before explicit stop, settings snapshot pre
 
 test('legacy records with embedded mappings remain readable without rewriting', () =>
 {
-    const oldSettings = { folder: 'old/records', timeTag: 'record/time', statusTag: 'record/status', subjectProperty: 'contexts', startProperty: 'time_start', endProperty: 'time_end', statusProperty: 'status' };
+    const oldSettings = { folder: 'old/records', timeTag: 'record/time', statusTag: 'record/status', timerSubjectProperty: 'contexts', startProperty: 'time_start', endProperty: 'time_end', statusProperty: 'status' };
     const data = frontmatter(entry({ settings: validateSettings(oldSettings) }));
     data.track_record = { version: 1, session: SESSION, subject_id: 'subject-1', fields: oldSettings };
     const text = `---\n${stringify(data)}---\nkeep this text`;
@@ -172,21 +172,19 @@ test('Timer and Status use independent folders and filename formats with UTC sec
 {
     const settings = { ...DEFAULTS, timerFolder: 'timers', statusFolder: 'statuses' };
     const time = entry({ settings, start: '2026-11-19T09:00:00.123+01:00' });
-    assert.equal(recordPath(time), 'timers/Timer - 2026-11-19T08-00-00Z - 000000.md');
-    assert.equal(recordPath({ ...time, kind: 'status', status: 'active', end: undefined }), 'statuses/Status - 2026-11-19T08-00-00Z - 000000.md');
-    assert.equal(recordPath({ ...time, settings: { ...settings, timerFilename: 'Work - {date} - {hash}' } }), 'timers/Work - 2026-11-19 - 000000.md');
-    for (const timerFilename of ['../{hash}', '{unknown} - {hash}', '{type}', '{hash}.md', 'Timer: {hash}']) assert.throws(() => validateSettings({ ...settings, timerFilename }));
+    assert.equal(recordPath(time), 'timers/Timer - 2026-11-19T08-00-00Z.111111.md');
+    assert.equal(recordPath({ ...time, kind: 'status', status: 'active', end: undefined }), 'statuses/Status - 2026-11-19T08-00-00Z.111111.md');
+    assert.equal(recordPath({ ...time, settings: { ...settings, timerFilename: 'Work - {date}' } }), 'timers/Work - 2026-11-19.111111.md');
+    for (const timerFilename of ['../{hash}', '{unknown} - {hash}', '{hash}.md', 'Timer: {hash}']) assert.throws(() => validateSettings({ ...settings, timerFilename }));
 });
 
-test('short filename ID collisions expand the suffix rather than overwrite records', async () =>
+test('short filename collisions are reported without lengthening or overwriting', async () =>
 {
     const m = memory();
     const record = entry();
     const content = render(record);
     m.files.set(recordPath(record), 'a different record');
-    const chosen = await chooseRecordPath(m.writer, record, content);
-    assert.equal(chosen, recordPath(record, 10));
-    await createOnce(m.writer, chosen, content);
+    await assert.rejects(chooseRecordPath(m.writer, record, content), /already exists/);
     assert.equal(m.files.get(recordPath(record)), 'a different record');
 });
 
@@ -224,7 +222,7 @@ test('failed stop retains a durable pending record and retries the original end 
 test('upgrade retries a pending 0.1.0 timer with its original filename and bytes', async () =>
 {
     const m = memory();
-    const oldSettings = { folder: 'records/track-record', timeTag: 'record/time', statusTag: 'record/status', subjectProperty: 'contexts', startProperty: 'time_start', endProperty: 'time_end', statusProperty: 'status' };
+    const oldSettings = { folder: 'records/track-record', timeTag: 'record/time', statusTag: 'record/status', timerSubjectProperty: 'contexts', startProperty: 'time_start', endProperty: 'time_end', statusProperty: 'status' };
     const oldPath = `records/track-record/2026-11-19-time-${A}.md`;
     const content = 'original pending record content';
     const pending = { ...entry(), settings: oldSettings };
@@ -281,54 +279,54 @@ test('independent device drafts create unique records and surface simultaneous w
 
 test('nested timer properties round-trip while status stays device-independent', () =>
 {
-    const timer = entry({ device: 'Workstation', end: undefined });
+    const timer = entry({ user: 'Workstation', end: undefined });
     const data = frontmatter(timer);
-    assert.deepEqual(data.timer, { start: timer.start, end: null, device: 'Workstation' });
-    assert.equal(data['timer.start'], undefined);
+    assert.deepEqual(data.record, { start: timer.start, end: null, user: 'Workstation' });
+    assert.equal(data['record.start'], undefined);
     const parsed = parseRecord(render(timer), recordPath(timer), parse);
-    assert.equal(parsed.device, 'Workstation');
+    assert.equal(parsed.user, 'Workstation');
     assert.equal(parsed.end, undefined);
     assert.equal(duration(parsed), 0);
     const status = entry({ kind: 'status', end: undefined, status: 'active' });
     const statusData = frontmatter(status);
     assert.equal(statusData.timer, undefined);
-    assert.equal(statusData.time_start, status.start);
-    assert.equal(parseRecord(render(status), recordPath(status), parse).device, undefined);
+    assert.equal(getProperty(statusData, 'record.start'), status.start);
+    assert.equal(parseRecord(render(status), recordPath(status), parse).user, undefined);
 });
 
 test('flat property names and nested subject/status paths are supported', () =>
 {
-    const settings = { ...DEFAULTS, deviceProperty: 'device', startProperty: 'time_start', endProperty: 'time_end', subjectProperty: 'relations.subject', statusStartProperty: 'state.at', statusProperty: 'state.value' };
-    const timer = entry({ settings, device: 'Phone' });
+    const settings = { ...DEFAULTS, userProperty: 'user', startProperty: 'time_start', endProperty: 'time_end', timerSubjectProperty: 'relations.subject', statusSubjectProperty: 'relations.subject', statusStartProperty: 'state.at', statusProperty: 'state.value' };
+    const timer = entry({ settings, user: 'Phone' });
     const data = frontmatter(timer);
-    assert.equal(data.device, 'Phone');
+    assert.equal(data.user, 'Phone');
     assert.equal(data.time_end, timer.end);
     assert.equal(getProperty(data, 'relations.subject') instanceof Array, true);
-    assert.equal(parseRecord(render(timer), recordPath(timer), parse, [settings]).device, 'Phone');
+    assert.equal(parseRecord(render(timer), recordPath(timer), parse, [settings]).user, 'Phone');
     const status = entry({ settings, kind: 'status', status: 'open', end: undefined });
     assert.deepEqual(frontmatter(status).state, { at: status.start, value: 'open' });
 });
 
 test('nested paths reject overlap, scalar parents and prototype pollution', () =>
 {
-    for (const deviceProperty of ['timer', 'timer.start', 'timer.start.name', 'timer.__proto__.x', 'constructor.x', 'tags.device']) assert.throws(() => validateSettings({ ...DEFAULTS, deviceProperty }));
-    assert.throws(() => setProperty({ timer: 'user value' }, 'timer.end', 'value'), /parent/);
-    assert.throws(() => getProperty({ timer: [] }, 'timer.start'), /parent/);
+    for (const userProperty of ['record', 'record.start', 'record.start.name', 'record.__proto__.x', 'constructor.x', 'tags.user']) assert.throws(() => validateSettings({ ...DEFAULTS, userProperty }));
+    assert.throws(() => setProperty({ record: 'user value' }, 'record.end', 'value'), /parent/);
+    assert.throws(() => getProperty({ record: [] }, 'record.start'), /parent/);
     assert.equal(({} as Record<string, unknown>).polluted, undefined);
 });
 
-test('missing, null and empty end fields select open records by device or reset-all', () =>
+test('missing, null and empty ends select only the exact current user', () =>
 {
     for (const end of [undefined, null, '', '  ']) {
-        const record = entry({ device: 'Desktop', end: undefined });
+        const record = entry({ user: 'Desktop', end: undefined });
         const data = frontmatter(record);
-        if (end === undefined) delete (data.timer as Record<string, unknown>).end;
+        if (end === undefined) delete (data.record as Record<string, unknown>).end;
         else setProperty(data, DEFAULTS.endProperty, end);
         const parsed = parseRecord(`---\n${stringify(data)}---\n`, 'record.md', parse);
         assert.equal(isOpenEnd(parsed.end), true);
         assert.equal(ownedOpenTimers([parsed], 'Desktop').length, 1);
         assert.equal(ownedOpenTimers([parsed], 'Phone').length, 0);
-        assert.equal(ownedOpenTimers([parsed], 'Phone', true).length, 1);
+        assert.equal(ownedOpenTimers([parsed], '').length, 0);
     }
     assert.equal(isOpenEnd(0), false);
     assert.equal(isOpenEnd(false), false);
@@ -336,9 +334,9 @@ test('missing, null and empty end fields select open records by device or reset-
 
 test('closing a timer preserves body, YAML comments and unrelated nested fields', () =>
 {
-    const record = entry({ device: 'Desktop', end: undefined });
+    const record = entry({ user: 'Desktop', end: undefined });
     const path = recordPath(record);
-    const text = render(record).replace('timer:', '# keep comment\ntimer:').replace('  end: null', '  extra: keep\n  end: null') + '\n## Details\nDo not change this body.\n';
+    const text = render(record).replace('record:', '# keep comment\nrecord:').replace('  end: null', '  extra: keep\n  end: null') + '\n## Details\nDo not change this body.\n';
     const expected = parseRecord(text, path, parse);
     const closed = closeTimerText(text, expected, entry().end!, parse, [DEFAULTS]);
     assert.match(closed, /# keep comment/);
@@ -355,13 +353,67 @@ test('closing a timer preserves body, YAML comments and unrelated nested fields'
     assert.equal(parseRecord(windowsClosed, path, parse).end, entry().end);
 });
 
-test('device suggestions fall back safely and names remain editable', () =>
+test('optional user names accept empty ownership and reject control characters', () =>
 {
-    assert.equal(suggestDeviceName(() => '  Test-PC  ', 'This device'), 'Test-PC');
-    assert.equal(suggestDeviceName(() =>
-    {
-        throw Error('unavailable');
-    }, 'Android device'), 'Android device');
-    assert.equal(validateDeviceName('Phone'), 'Phone');
-    for (const name of ['', '  ', 'two\nlines']) assert.throws(() => validateDeviceName(name));
+    assert.equal(validateUserName('  Alice  '), 'Alice');
+    assert.equal(validateUserName('  '), '');
+    assert.throws(() => validateUserName('two\nlines'));
+});
+
+test('filename suffix is fixed and no identity property is emitted', () =>
+{
+    const record = entry({ settings: { ...DEFAULTS, timerFilename: 'My note' } });
+    assert.equal(recordPath(record), 'records/track-record/My note.111111.md');
+    const data = frontmatter(record);
+    assert.equal(data.id, undefined);
+    assert.equal(data.track_record, undefined);
+    const parsed = parseRecord(render(record), recordPath(record), parse);
+    assert.equal(parsed.id, `file:${recordPath(record)}`);
+    assert.equal(validateSettings({ ...DEFAULTS, timerFilename: 'Legacy - {timestamp} - {hash}' }).timerFilename, 'Legacy - {timestamp}');
+});
+
+test('shared timer links count the interval once globally and in full per linked note', () =>
+{
+    const first = { path: 'Project A.md' }, second = { path: 'Project B.md' };
+    const record = entry({ subject: first, subjects: [first, second, first] });
+    const parsed = parseRecord(render(record), recordPath(record), parse);
+    assert.equal(recordSubjects(parsed).length, 2);
+    assert.equal(relatesTo(parsed, first), true);
+    assert.equal(relatesTo(parsed, second), true);
+    assert.equal([parsed].reduce((total, value) => total + duration(value), 0), 3600000);
+    for (const target of [first, second]) assert.equal([parsed].filter(value => relatesTo(value, target)).reduce((total, value) => total + duration(value), 0), 3600000);
+});
+
+test('Timer and Status have separate subject properties; status uses record.start without a user', () =>
+{
+    const settings = { ...DEFAULTS, timerSubjectProperty: 'projects', statusSubjectProperty: 'contexts' };
+    const timer = entry({ settings, user: 'Alice' });
+    const status = entry({ settings, kind: 'status', end: undefined, status: 'active' });
+    assert.ok(Array.isArray(frontmatter(timer).projects));
+    assert.equal(frontmatter(timer).contexts, undefined);
+    const data = frontmatter(status);
+    assert.ok(Array.isArray(data.contexts));
+    assert.equal(data.projects, undefined);
+    assert.deepEqual(data.record, { start: status.start });
+    assert.equal(parseRecord(render(status), recordPath(status), parse, [settings]).status, 'active');
+});
+
+test('multiple status subjects and aliased links retain target semantics without duplicate warnings', () =>
+{
+    const record = entry({ kind: 'status', end: undefined, status: 'active', subjects: [{ path: 'A.md' }, { path: 'B.md' }] });
+    const data = frontmatter(record);
+    data.contexts = ['[[A|Label]]', '[[B]]', '[[A]]'];
+    const parsed = parseRecord(`---\n${stringify(data)}---\n`, 'status.md', parse);
+    assert.equal(recordSubjects(parsed).length, 2);
+    assert.deepEqual(historyWarnings([parsed]), []);
+    const other = entry({ id: B, kind: 'status', end: undefined, status: 'paused', subject: { path: 'B.md' } });
+    assert.match(historyWarnings([parsed, other]).join(), /B.md/);
+});
+
+test('parallel work by different users is valid; same-user overlaps remain ambiguous', () =>
+{
+    const alice = entry({ user: 'Alice' });
+    const bob = entry({ id: B, user: 'Bob' });
+    assert.deepEqual(historyWarnings([alice, bob]), []);
+    assert.match(historyWarnings([alice, { ...bob, user: 'Alice' }]).join(), /Overlapping/);
 });

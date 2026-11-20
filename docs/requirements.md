@@ -1,6 +1,6 @@
 # Requirements
 
-Preview 0.1.2 implements manual/open timer records without private metadata blocks, a local device-name suggestion, nested/flat property mappings, per-device or optional all-device closure, separate Timer/Status settings and current-note sidebar actions. Timer state is reconstructed from Markdown rather than saved locally. Older preview drafts remain explicitly recoverable. Decisions and limits are recorded in [architecture](architecture.md); automated and manual validation are distinguished in [testing](testing.md). Requirements below also describe later work.
+Preview 0.1.3 uses optional user ownership across devices, record.* defaults, fixed short filename suffixes without ID properties, separate Timer/Status subject fields and multiple linked targets. No configured user closes only unassigned timers. Timer state is reconstructed from Markdown. Older preview drafts remain explicitly recoverable. See [architecture](architecture.md) and [testing](testing.md); later requirements below remain design work.
 
 ## Confirmed direction
 
@@ -27,7 +27,7 @@ Build an independent Obsidian plugin named **Track Record**, with the subtitle *
 ## Records and relations
 
 - Records remain readable/editable Markdown without the plugin.
-- Provide stable record identity and configurable links to the subject note.
+- Use ordinary note paths for new record identity and configurable subject links; no special identity properties or UUID filenames.
 - The initial profile uses `contexts` for subject links, `time_start`/`time_end` for intervals and tags for record types; `projects` is a planned relation property.
 - Support project-level queries through relations, accounting for multiple parents, cycles and duplicate records. Agree ownership of aggregation with Bases Excerpts before implementation.
 - Do not introduce a mandatory `type` property when record-type tags already provide classification.
@@ -36,7 +36,7 @@ Build an independent Obsidian plugin named **Track Record**, with the subtitle *
 ## Compatibility and write safety
 
 - Target desktop and mobile using supported Obsidian APIs. Compatibility remains unverified until tested.
-- By default, close only timer records whose device matches the local name. An explicit reset-all option may close other-device records visible in the vault. Never write a shared aggregate timer-state file.
+- Close only records matching the optional current user. No configured user closes only unassigned timers. Device names and old reset-all flags must not bypass this rule. Never write a shared aggregate timer-state file.
 - Do not silently pick a winner for conflicting records or simultaneous status transitions.
 - Handle note and record synchronization arriving in either order.
 - Use guarded writes and preserve user edits; avoid event feedback loops with other metadata plugins.
