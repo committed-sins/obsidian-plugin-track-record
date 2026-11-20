@@ -227,11 +227,11 @@ export function frontmatter(entry: RecordEntry): Record<string, unknown>
     const result: Record<string, unknown> = {
         tags: [entry.kind === 'time' ? s.timeTag : s.statusTag], created: entry.created,
     };
+    if (entry.kind === 'time' && entry.user) setProperty(result, s.userProperty, entry.user);
     setProperty(result, entry.kind === 'time' ? s.timerSubjectProperty : s.statusSubjectProperty, [...new Set(recordSubjects(entry).map(subject => `[[${subject.path.slice(0, -3)}]]`))]);
     setProperty(result, entry.kind === 'time' ? s.startProperty : s.statusStartProperty, entry.start);
     if (entry.kind === 'time') {
         setProperty(result, s.endProperty, entry.end ?? null);
-        if (entry.user) setProperty(result, s.userProperty, entry.user);
     } else setProperty(result, s.statusProperty, entry.status);
     return result;
 }
