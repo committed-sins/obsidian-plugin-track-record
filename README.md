@@ -4,7 +4,7 @@
 
 Track Record records work intervals and note status events as linked Markdown records in your vault.
 
-**Development preview 0.1.3. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
+**Development preview 0.1.4. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
 
 ## Preview features
 
@@ -16,7 +16,7 @@ Track Record records work intervals and note status events as linked Markdown re
 
 Commands are prefixed **Track Record** in the command palette: **Start timer for active note**, **Stop timer**, **Add manual time record for active note**, **Record status for active note**, **Open note history and timer**, and **Recover legacy timer** (only for local drafts from older previews). The ribbon/status-bar item opens history.
 
-Use ISO timestamps with an explicit timezone, e.g. `2026-11-19T09:00:00+01:00`. Manual intervals require an end after the start. Correct saved records by opening their Markdown note, editing properties/text and refreshing history.
+New timestamps are saved in UTC (`Z`). Manual time and status dialogs use native local date/time pickers; history shows local time, with the stored timestamp available on hover. Older timestamps with explicit offsets remain readable without migration. Nonexistent local times during the spring clock change are rejected. During the repeated autumn hour the local picker uses the earlier occurrence; edit the saved timestamp with an explicit offset if the later occurrence is intended. Manual intervals require an end after the start. Correct saved records by opening their Markdown note, editing properties/text and refreshing history.
 
 **Source notes remain unchanged.** Recording a status does not update the source note's `status` property. The preview has no automatic property observer, source-status projection, status-duration formulas or project aggregation. Work duration is separate from time spent in a status.
 
@@ -50,7 +50,7 @@ Timer - 2026-11-20T08-00-00Z.a1b2c3.md
 Status - 2026-11-20T08-00-00Z.d4e5f6.md
 ```
 
-`{timestamp}` is UTC to seconds, without milliseconds; colons become hyphens for Windows-safe names. `{date}` is its UTC calendar date. `{type}` is Timer or Status. The fixed suffix is six random hexadecimal characters, not a content hash. It is never expanded into a UUID. A filename collision is reported without overwriting or adding identity properties. Retry as a new record or resolve the note collision. Previous trailing `{hash}` patterns are interpreted as the new fixed suffix. Ordinary timestamp properties retain their precision and timezone.
+`{timestamp}` is UTC to seconds, without milliseconds; colons become hyphens for Windows-safe names. `{date}` is its UTC calendar date. `{type}` is Timer or Status. The fixed suffix is six random hexadecimal characters, not a content hash. It is never expanded into a UUID. A filename collision is reported without overwriting or adding identity properties. Retry as a new record or resolve the note collision. Previous trailing `{hash}` patterns are interpreted as the new fixed suffix. New timestamp properties use UTC and retain millisecond precision for timer Start/Stop; manual inputs use seconds.
 
 Running timers are ordinary open Markdown records; no new local draft/session state is stored. Reloading or switching devices does not invent an end time. Idle/sleep time is not automatically subtracted; the interval ends only when explicitly stopped/switched or edited. The previous preview's local draft, if present, is preserved and requires explicit **Recover legacy timer** or discard before new timers can start. An interrupted legacy save retries its exact original bytes and path.
 
@@ -70,7 +70,7 @@ node scripts/deploy.mjs /path/to/Test
 
 Artifacts are built into `dist/`. Deployment accepts only a vault named `Test`, copying `main.js`, `manifest.json` and `styles.css` into `.obsidian/plugins/track-record`. Settings, activation, workspace and records are preserved. Enable/reload manually in Test.
 
-TypeScript, Allman checks, build and 51 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
+TypeScript, Allman checks, build and 52 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
 
 ## Direction beyond the preview
 

@@ -12,3 +12,19 @@
 .track-record-label { color: var(--text-muted); font-size: var(--font-ui-smaller); margin-bottom: var(--size-4-1); }
 .track-record-subtle { color: var(--text-muted); font-size: var(--font-ui-small); overflow-wrap: anywhere; }
 .track-record-summary { font-weight: var(--font-semibold); }
+
+.track-record-dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap: var(--size-4-3); margin-bottom: var(--size-4-3); }
+.track-record-dashboard > div { margin-bottom: 0; }
+.track-record-current .setting-item { background: transparent; }
+.track-record-history-toolbar { display: flex; align-items: center; flex-wrap: wrap; gap: var(--size-4-3); padding: var(--size-4-2) 0; }
+.track-record-scope { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); }
+.track-record-scope button { box-shadow: none; background: transparent; color: var(--text-muted); }
+.track-record-scope button.is-active { background: var(--background-modifier-hover); color: var(--text-normal); font-weight: var(--font-semibold); }
+.track-record-refresh { box-shadow: none; padding: var(--size-4-2); }
+.track-record-refresh svg { width: var(--icon-s); height: var(--icon-s); }
+.track-record-summary { margin: var(--size-4-2) 0; }
+.track-record-modal input[type="datetime-local"] { width: 240px; max-width: 100%; }
+@media (max-width: 480px) {
+    .track-record-modal .setting-item { flex-direction: column; align-items: stretch; gap: var(--size-4-2); }
+    .track-record-modal .setting-item-control { justify-content: flex-start; }
+}

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, stringify } from 'yaml';
-import { DEFAULTS, Timer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, getProperty, historyWarnings, instant, isOpenEnd, localTimestamp, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, sameSubject, setProperty, timerDraft, validateUserName, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
+import { DEFAULTS, Timer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, getProperty, historyWarnings, instant, isOpenEnd, localTimestamp, utcTimestamp, localDateTime, localDateTimeToUtc, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, sameSubject, setProperty, timerDraft, validateUserName, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
 
 const A = '11111111-0000-4000-8000-000000000001';
 const B = '22222222-0000-4000-8000-000000000002';
@@ -416,4 +416,22 @@ test('parallel work by different users is valid; same-user overlaps remain ambig
     const bob = entry({ id: B, user: 'Bob' });
     assert.deepEqual(historyWarnings([alice, bob]), []);
     assert.match(historyWarnings([alice, { ...bob, user: 'Alice' }]).join(), /Overlapping/);
+});
+
+test('UTC storage and local picker handle winter, summer and invalid local dates', () =>
+{
+    const previous = process.env.TZ;
+    process.env.TZ = 'Europe/Vienna';
+    try {
+        assert.equal(utcTimestamp(new Date('2026-11-20T15:00:00+01:00')), '2026-11-20T14:00:00.000Z');
+        assert.equal(localDateTime(new Date('2026-11-20T14:00:00Z')), '2026-11-20T15:00:00');
+        assert.equal(localDateTimeToUtc('2026-11-20T15:00'), '2026-11-20T14:00:00.000Z');
+        assert.equal(localDateTimeToUtc('2026-07-20T15:00:12'), '2026-07-20T13:00:12.000Z');
+        assert.throws(() => localDateTimeToUtc('2026-03-29T02:30'), /does not exist/);
+        assert.throws(() => localDateTimeToUtc('2026-02-30T12:00'), /Invalid calendar/);
+        assert.throws(() => localDateTimeToUtc(''), /Choose a date/);
+    } finally {
+        if (previous === undefined) delete process.env.TZ;
+        else process.env.TZ = previous;
+    }
 });

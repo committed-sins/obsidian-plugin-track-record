@@ -1,6 +1,6 @@
 # Requirements
 
-Preview 0.1.3 uses optional user ownership across devices, record.* defaults, fixed short filename suffixes without ID properties, separate Timer/Status subject fields and multiple linked targets. No configured user closes only unassigned timers. Timer state is reconstructed from Markdown. Older preview drafts remain explicitly recoverable. See [architecture](architecture.md) and [testing](testing.md); later requirements below remain design work.
+Preview 0.1.4 uses optional user ownership across devices, record.* defaults, fixed short filename suffixes without ID properties, separate Timer/Status subject fields and multiple linked targets. No configured user closes only unassigned timers. Timer state is reconstructed from Markdown. Older preview drafts remain explicitly recoverable. See [architecture](architecture.md) and [testing](testing.md); later requirements below remain design work.
 
 ## Confirmed direction
 
@@ -10,7 +10,7 @@ Build an independent Obsidian plugin named **Track Record**, with the subtitle *
 
 - Explicitly start and stop work for a target note, with visible running state.
 - Support manual entries for work outside Obsidian and correction of existing entries.
-- Retain start/end timestamps with timezone offsets; calculate durations from instants.
+- Save new start/end timestamps in UTC; accept older explicit offsets and calculate durations from instants.
 - Distinguish open, closed and interrupted intervals; never fabricate a stop time on restart.
 - Validate end-before-start values. Present overlaps rather than silently removing or summing them as unique work time.
 - Define single versus concurrent timers before implementing timer commands.

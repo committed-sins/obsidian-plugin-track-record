@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 51 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
+Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 52 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
 
 Core tests cover YAML round-trips, configurable mappings, invalid dates/offsets, daylight-saving transitions, repeated statuses, equal-time ambiguity, overlaps, duplicate IDs, conflicting destinations, exact retries, interrupted local timers, failed writes and independent device drafts.
 
@@ -24,19 +24,22 @@ Only `main.js`, `manifest.json` and `styles.css` are copied. Enable/reload manua
 
 1. In **Test**, enable Track Record under Community plugins (reload if already enabled). Open an ordinary Markdown note. Enabling/opening alone must not create records.
 2. Run **Track Record: Start timer for active note**. Wait briefly, run **Stop timer**, and open **Open note history and timer**. Check duration and the generated record under `records/track-record`; the source note must be unchanged.
-3. Add a manual interval with timezone timestamps. Try an end before start and a nonexistent date: the dialog should remain open and show an error. Then save a valid interval with optional text.
+3. Add a manual interval using the native local date/time pickers. Confirm saved properties use UTC and history shows the same local time. Try an end before start and a nonexistent date: the dialog should remain open and show an error. Then save a valid interval with optional text.
 4. Record `active`, `paused`, `active` at increasing effective times. Confirm three separate records. Source `status` remains unchanged. Record two different statuses at the same instant and check the ambiguity warning.
 5. Create overlapping time records, including on different notes. History must withhold totals and show a warning. Correct the intervals in Markdown and refresh. Invalid records must produce visible errors.
 6. Start a timer: an open Markdown record should exist immediately. Disable/re-enable or reopen Obsidian; the timer should be reconstructed from that note and Stop should set its end. For a draft left by an older preview only, use **Recover legacy timer** explicitly.
 7. Rename/move a subject while retaining its string `id`, then stop the timer. Confirm attribution. Without an ID, test a live rename with native link updates; an offline rename can require restoring the old path. Duplicate note IDs should block new recording once indexed.
 8. In settings, use different folders/tags/formats for Timer and Status, then the same folder. Check folder suggestions and filename previews. Use `#record/time` as a tag input and confirm YAML stores `record/time`. Earlier records should remain readable using retained profiles in plugin settings; no prior record is migrated.
-9. Use sidebar Start/Stop for the current note. Switch notes and start another timer: the previous local timer must end at the exact new start time. Check the running clock updates each second and remains visible while browsing another note. Toggling All notes must not change the current-note action target.
+9. Use sidebar Start/Stop for the current note. Switch notes and start another timer: the previous local timer must end at the exact new start time. Check the running clock updates each second and remains visible while browsing another note. Selecting All notes must not change the current-note action target.
 10. Check new filenames use UTC seconds, a short suffix and the configured Timer/Status patterns. New frontmatter must not include `track_record`. Existing 0.1.0 records and pending timer saves should remain readable/recoverable with their original content.
 11. Set the same optional user on two devices. The local name must persist without appearing as a name value in shared settings. No device-name suggestion remains. Clear the user and confirm assigned users' timers stay open; only unassigned timers close. Existing device names and reset-all flags cannot change this behavior.
 12. Configure nested record.user/start/end, then flat alternatives. Test missing, null, empty and whitespace-only ends. Status defaults to record.start and has no user/device field. Add comments, extra YAML fields and body text to an open timer, then Stop: retain them.
 13. Create multiple same-user and other-user timers. Start/Stop must close exact owner matches only. A future start or conflicting edit must prevent a replacement. Cross-file writes can partially finish on an I/O failure.
 14. Set a literal filename base without placeholders. The final name must still end in six hexadecimal characters as Base.abcdef.md; no new id/track_record property is written. A collision reports an error without expanding the suffix or overwriting.
 15. Configure Timer subjects as projects and Status subjects as contexts. Add several note paths in each dialog. Check every linked note view, global time counted once, full duration per target and the explicit description that a multi-target status applies to all listed notes. Check aliases and duplicate-target handling.
+16. Check the history toolbar has two persistent scope buttons, exactly one visibly selected, and a refresh icon with a tooltip. Check a wide bottom pane and a narrow sidebar. No extra Track Record heading should appear.
+
+Desktop spot check (2026-11-20, preview 0.1.4): viewed the real bottom pane in Test, confirmed the compact toolbar and opened the native date/time calendar. Closed the dialog without creating a record. Mobile, narrow-pane rendering and the full manual matrix remain pending.
 
 ## Mobile and synchronization — pending
 

@@ -57,6 +57,12 @@
 - Prepare a dry-run migration from existing time/status data and former Templater plans.
 - Keep removal of `status` or renaming `logs` to `records` as separately reviewed migration steps.
 
+### Preview 0.1.4 refinements
+
+- [x] Save new timestamps in UTC; show and enter local time using native date/time pickers.
+- [x] Remove redundant view heading, group note actions and expose persistent history scope buttons with refresh icon.
+- [x] Pass 52 tests and inspect the bottom-pane layout and native calendar in Test. Mobile and full user acceptance remain pending.
+
 ## 4. Validation and release
 
 - [x] Deploy development preview 0.1.0 to the authorized Test vault (2026-11-19), preserving activation and settings.

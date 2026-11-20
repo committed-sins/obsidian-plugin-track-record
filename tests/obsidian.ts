@@ -10,6 +10,9 @@ export const Platform = { isDesktopApp: false, isAndroidApp: false, isIosApp: fa
 export class Element
 {
     text = '';
+    tag = '';
+    attributes = new Map<string, string>();
+    events = new Map<string, () => unknown>();
     children: Element[] = [];
     setText(text: string): void
     {
@@ -18,11 +21,13 @@ export class Element
     addClass(): void
     {
     }
-    setAttribute(): void
+    setAttribute(name: string, value: string): void
     {
+        this.attributes.set(name, value);
     }
-    addEventListener(): void
+    addEventListener(name: string, callback: () => unknown): void
     {
+        this.events.set(name, callback);
     }
     empty(): void
     {
@@ -32,6 +37,7 @@ export class Element
     {
         const child = new Element();
         child.text = options?.text ?? '';
+        child.tag = _tag;
         this.children.push(child);
         return child;
     }
@@ -150,7 +156,7 @@ export class AbstractInputSuggest<T>
 
 export class Control
 {
-    inputEl = {};
+    inputEl = { type: 'text', step: '' };
     text = '';
     disabled = false;
     change: (value: any) => void = () =>
@@ -231,4 +237,8 @@ export class Setting
         callback(control);
         return this;
     }
+}
+
+export function setIcon(): void
+{
 }

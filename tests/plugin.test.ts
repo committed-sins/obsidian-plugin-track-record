@@ -220,8 +220,14 @@ test('sidebar exposes current-note timer controls and a ticking timer without lo
     const flatten = (node: import('./obsidian').Element): string => node.text + node.children.map(flatten).join();
     view.updateClock();
     assert.match(flatten(view.contentEl), /Running ·/);
-    const all = settings.flatMap(setting => setting.controls).find(control => control.text === 'All notes')!;
-    await all.click();
+    const nodes = (node: import('./obsidian').Element): import('./obsidian').Element[] => [node, ...node.children.flatMap(nodes)];
+    assert.equal(nodes(view.contentEl).some(node => node.tag === 'h3'), false);
+    const scopes = nodes(view.contentEl).filter(node => ['This note', 'All notes'].includes(node.text));
+    assert.equal(scopes[0].attributes.get('aria-pressed'), 'true');
+    assert.equal(scopes[1].attributes.get('aria-pressed'), 'false');
+    scopes[1].events.get('click')!();
+    await view.refresh();
+    assert.equal(nodes(view.contentEl).find(node => node.text === 'All notes')!.attributes.get('aria-pressed'), 'true');
     assert.equal(plugin.selected!.path, f.source.path);
 });
 
@@ -239,8 +245,10 @@ test('manual dialog validation remains editable and failed saves retry the origi
     await save.click();
     assert.equal(modal.closed, false);
     assert.equal(save.disabled, false);
-    start.change('2026-11-19T09:00:00+01:00');
-    end.change('2026-11-19T10:00:00+01:00');
+    assert.equal(start.inputEl.type, 'datetime-local');
+    assert.equal(end.inputEl.type, 'datetime-local');
+    start.change('2026-11-19T09:00:00');
+    end.change('2026-11-19T10:00:00');
     f.setFailure(true);
     await save.click();
     assert.equal(modal.closed, false);

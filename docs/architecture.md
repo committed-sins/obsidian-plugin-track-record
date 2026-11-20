@@ -1,6 +1,6 @@
 # Data model and architecture
 
-## Preview 0.1.3
+## Preview 0.1.4
 
 - Timer and Status records are ordinary Markdown notes. New notes have no `id` or `track_record` identity field. Their vault paths identify them internally. Existing IDs/envelopes are read for compatibility only.
 - Each type has a configurable filename base (`{type} - {timestamp}` by default), with a fixed six-character random `.{hash}.md` suffix. Never lengthen it to a UUID. A collision reports an ordinary note conflict without overwriting. No extra sync identity or collision-repair protocol is promised.
@@ -26,7 +26,7 @@ contexts:
   - "[[Project B]]"
 record:
   user: Alice
-  start: "2026-11-20T09:00:00+01:00"
+  start: "2026-11-20T08:00:00.000Z"
   end: null
 ---
 ```
@@ -37,10 +37,12 @@ tags: [record/status]
 contexts:
   - "[[Project A]]"
 record:
-  start: "2026-11-20T09:00:00+01:00"
+  start: "2026-11-20T08:00:00.000Z"
 status: ongoing
 ---
 ```
+
+- New timer, manual and status timestamps use UTC. Native datetime-local fields convert local calendar input to UTC and reject nonexistent DST times. Older offset timestamps and exact legacy pending-save bytes remain unchanged.
 
 ## Compatibility and indexing
 

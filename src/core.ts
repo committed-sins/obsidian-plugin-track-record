@@ -173,6 +173,26 @@ export function localTimestamp(date = new Date()): string
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}.${String(date.getMilliseconds()).padStart(3, '0')}${offset < 0 ? '-' : '+'}${pad(Math.floor(Math.abs(offset) / 60))}:${pad(Math.abs(offset) % 60)}`;
 }
 
+export function utcTimestamp(date = new Date()): string
+{
+    return date.toISOString();
+}
+
+export function localDateTime(date = new Date()): string
+{
+    return localTimestamp(date).slice(0, 19);
+}
+
+export function localDateTimeToUtc(value: string): string
+{
+    if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/.test(value)) throw Error('Choose a date and time.');
+    instant(value + 'Z'); // Validate calendar fields before the local constructor can normalize them.
+    const date = new Date(value);
+    const normalized = value.length === 16 ? value + ':00' : value;
+    if (!Number.isFinite(date.getTime()) || localDateTime(date) !== normalized) throw Error('This local time does not exist because the clocks change. Choose another time.');
+    return utcTimestamp(date);
+}
+
 export function validateSubject(input: unknown): Subject
 {
     if (!input || typeof input !== 'object') throw Error('Missing subject note.');
