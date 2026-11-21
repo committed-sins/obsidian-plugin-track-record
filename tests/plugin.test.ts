@@ -15,6 +15,7 @@ function fixture()
     let failCreate = false;
     let failProcess = false;
     const events = new Map<string, (...args: unknown[]) => void>();
+    const workspaceEvents = new Map<string, (...args: unknown[]) => void>();
     const app = {
         loadLocalStorage: (key: string) => structuredClone(state.get(key) ?? null),
         saveLocalStorage: (key: string, value: unknown) => state.set(key, structuredClone(value)),
@@ -60,12 +61,15 @@ function fixture()
         workspace: {
             getActiveFile: () => source,
             getLeavesOfType: () => [],
-            on: () => undefined,
+            on: (name: string, callback: (...args: unknown[]) => void) =>
+            {
+                workspaceEvents.set(name, callback);
+            },
             onLayoutReady: (callback: () => void) => callback()
         }
     };
     return {
-        app: app as unknown as App, source: source as unknown as ObsidianFile, texts, content, files, events, state,
+        app: app as unknown as App, source: source as unknown as ObsidianFile, texts, content, files, events, workspaceEvents, state,
         plugin: () => new TrackRecord(app as unknown as App, {} as PluginManifest),
         setFailure: (value: boolean) =>
         {
@@ -297,7 +301,7 @@ test('running timers survive reload; an optional current user stays local', asyn
     const active = plugin.currentTimer()!;
     assert.ok(active.path);
     assert.match(f.texts.get(active.path!)!, /user: Desktop/);
-    assert.deepEqual([...f.state.keys()], ['track-record:user-name:v1']);
+    assert.deepEqual([...f.state.keys()].sort(), ['track-record:presence:v1', 'track-record:user-name:v1']);
     assert.ok(!f.texts.get(active.path!)!.includes('\nid:'));
     const reloaded = f.plugin();
     await reloaded.onload();
@@ -481,4 +485,151 @@ test('history separates timer and status actions, records and totals without cha
     assert.equal(settings.flatMap(setting => setting.controls).some(control => control.text === 'Start timer'), false);
     assert.ok(settings.flatMap(setting => setting.controls).some(control => control.text === 'Record status'));
     assert.equal(plugin.selected!.path, f.source.path);
+});
+
+const PRESENCE = 'track-record:presence:v1';
+type Presence = import('../src/presence').PresenceState;
+
+async function interruptedFixture(reason: 'active' | 'quit' | 'unload' = 'quit')
+{
+    const f = fixture();
+    const first = f.plugin();
+    await first.onload();
+    await first.presenceReady;
+    first.saveUserName('Alice');
+    await first.saveEntry(first.newEntry(await first.subject(f.source), 'time', '2026-11-19T09:00:00Z', '', '', '', true));
+    await first.snapshot();
+    if (reason === 'quit') f.workspaceEvents.get('quit')!({});
+    else first.checkpointPresence(reason);
+    const before = structuredClone(f.state.get(PRESENCE)) as Presence;
+    first.onunload();
+    if (reason === 'active') f.state.set(PRESENCE, before); // Abrupt process termination skips unload.
+    const plugin = f.plugin();
+    await plugin.onload();
+    await plugin.presenceReady;
+    return { ...f, first, plugin, observation: (f.state.get(PRESENCE) as Presence).pending[0] };
+}
+
+test('quit records a local boundary; restart prompts without automatically ending the timer', async () =>
+{
+    settings.length = 0;
+    const f = await interruptedFixture();
+    assert.equal(f.observation.reason, 'quit');
+    assert.equal(f.plugin.currentTimer()!.end, undefined);
+    assert.equal(modals.at(-1)!.titleEl.text, 'Timer kept running while you were away');
+    const path = f.plugin.currentTimer()!.path!;
+    const before = f.texts.get(path);
+    await settings.flatMap(setting => setting.controls).find(control => control.text === 'Continue timing')!.click();
+    assert.equal(f.texts.get(path), before);
+    assert.equal((f.state.get(PRESENCE) as Presence).pending.length, 0);
+    assert.equal(f.texts.get(f.source.path), f.content);
+});
+
+test('ending at the recorded quit time changes only the observed timer, not a new or other-user timer', async () =>
+{
+    settings.length = 0;
+    const f = await interruptedFixture();
+    const observed = f.plugin.currentTimer()!.path!;
+    const subject = await f.plugin.subject(f.source);
+    const another = f.plugin.newEntry(subject, 'time', '2026-11-19T10:00:00Z', '', '', '', true);
+    await f.plugin.saveEntry(another);
+    await f.plugin.saveEntry({ ...f.plugin.newEntry(subject, 'time', '2026-11-19T11:00:00Z', '', '', '', true), user: 'Bob' });
+    await settings.flatMap(setting => setting.controls).find(control => control.text === 'End when Obsidian closed')!.click();
+    const records = (await f.plugin.snapshot()).records;
+    assert.equal(records.find(record => record.path === observed)!.end, f.observation.at);
+    assert.equal(records.filter(record => !record.end).length, 2);
+    assert.equal(f.texts.get(f.source.path), f.content);
+});
+
+test('crash fallback and plugin unload are labelled as last active; dismissed reminders survive restart', async () =>
+{
+    for (const reason of ['active', 'unload'] as const) {
+        const f = await interruptedFixture(reason);
+        const modal = modals.at(-1)!;
+        const flatten = (node: import('./obsidian').Element): string => node.text + node.children.map(flatten).join();
+        assert.match(flatten(modal.contentEl), /last active|Last active/);
+        modal.close();
+        f.plugin.checkpointPresence('active');
+        const next = new TrackRecord(f.app, {} as PluginManifest);
+        await next.onload();
+        await next.presenceReady;
+        assert.equal((f.state.get(PRESENCE) as Presence).pending[0].at, f.observation.at);
+        assert.equal(modals.at(-1)!.closed, false);
+    }
+});
+
+test('a synced end or replaced start prevents a stale reminder from modifying the note', async () =>
+{
+    for (const change of ['end', 'start']) {
+        const f = await interruptedFixture();
+        const timer = f.plugin.currentTimer()!;
+        const path = timer.path!;
+        if (change === 'end') await f.plugin.closeTimers([timer], '2026-11-19T10:00:00Z');
+        else f.texts.set(path, f.texts.get(path)!.replace('2026-11-19T09:00:00Z', '2026-11-19T10:00:00Z'));
+        const changed = f.texts.get(path);
+        await f.plugin.resolveInterruption(f.observation, f.observation.at);
+        assert.equal(f.texts.get(path), changed);
+    }
+});
+
+test('already synced closed timers and another configured user do not prompt on reopen', async () =>
+{
+    const f = await interruptedFixture();
+    await f.plugin.closeTimers([f.plugin.currentTimer()!], '2026-11-19T10:00:00Z');
+    const count = modals.length;
+    const closed = new TrackRecord(f.app, {} as PluginManifest);
+    await closed.onload(); await closed.presenceReady;
+    assert.equal(modals.length, count);
+    const other = await interruptedFixture();
+    other.state.set('track-record:user-name:v1', 'Bob');
+    const countOther = modals.length;
+    const bob = new TrackRecord(other.app, {} as PluginManifest);
+    await bob.onload(); await bob.presenceReady;
+    assert.equal(modals.length, countOther);
+});
+
+test('invalid end, user changes and disk failures preserve the reminder and open timer', async () =>
+{
+    const f = await interruptedFixture();
+    await assert.rejects(f.plugin.resolveInterruption(f.observation, f.observation.start), /End must be after start/);
+    f.setProcessFailure(true);
+    await assert.rejects(f.plugin.resolveInterruption(f.observation, f.observation.at), /disk unavailable/);
+    assert.equal((f.state.get(PRESENCE) as Presence).pending.length, 1);
+    f.plugin.saveUserName('Bob');
+    await assert.rejects(f.plugin.resolveInterruption(f.observation, f.observation.at), /Current user changed/);
+    assert.equal((await f.plugin.snapshot()).records[0].end, undefined);
+});
+
+test('late sync arrival of a previously observed timer offers the retained reminder', async () =>
+{
+    const f = await interruptedFixture();
+    const path = f.plugin.currentTimer()!.path!;
+    const text = f.texts.get(path)!;
+    const file = f.files.get(path)!;
+    f.files.delete(path); f.texts.delete(path);
+    const next = new TrackRecord(f.app, {} as PluginManifest);
+    const count = modals.length;
+    await next.onload(); await next.presenceReady;
+    assert.equal(modals.length, count);
+    assert.equal((f.state.get(PRESENCE) as Presence).pending.length, 1);
+    f.files.set(path, file); f.texts.set(path, text);
+    await next.snapshot();
+    assert.equal(modals.length, count + 1);
+    assert.equal(next.currentTimer()!.end, undefined);
+});
+
+test('first installation never invents a past boundary; malformed local reminders remain untouched', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    const count = modals.length;
+    await plugin.onload(); await plugin.presenceReady;
+    await plugin.startTimer();
+    assert.equal(modals.length, count);
+    f.state.set(PRESENCE, { version: 999 });
+    const next = f.plugin();
+    await next.onload(); await next.presenceReady;
+    next.checkpointPresence('active');
+    assert.deepEqual(f.state.get(PRESENCE), { version: 999 });
+    assert.ok(next.currentTimer());
 });

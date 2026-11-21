@@ -4,7 +4,7 @@
 
 Track Record records work intervals and note status events as linked Markdown records in your vault.
 
-**Development preview 0.1.5. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
+**Release candidate 0.1.6. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
 
 ## Preview features
 
@@ -13,10 +13,10 @@ Track Record records work intervals and note status events as linked Markdown re
 - Choose subject notes with Obsidian's fuzzy note picker; remove individual selections. The status input suggests distinct values from all readable status records, using their configured property paths, while accepting new values.
 - Write Markdown notes in a larger field, insert note links with the native picker and preview them. New records always include a level-two notes heading (Settings: **Notes heading**, default **Notes**) for section extraction.
 - Switch the history view between Timer and Status, then choose the selected note or all notes. Inspect work totals, record links and warnings about overlaps, duplicate IDs and tied status times.
-- Reconstruct running timers from Markdown after reload/shutdown, without a persistent local timer list.
+- Reconstruct running timers from Markdown after reload/shutdown. A local reminder records the quit time or last active heartbeat; on reopening you can continue, end at that time or choose another end. Nothing ends automatically.
 - Configure Timer and Status separately: folder, identifying tag and filename format. They can share a folder. Earlier property/tag mappings are retained in plugin settings, not in the Markdown notes.
 
-Commands are prefixed **Track Record** in the command palette: **Start timer for active note**, **Stop timer**, **Add manual time record for active note**, **Record status for active note**, **Open note history and timer**, and **Recover legacy timer** (only for local drafts from older previews). The ribbon/status-bar item opens history.
+Commands are prefixed **Track Record** in the command palette: **Start timer for active note**, **Stop timer**, **Add manual time record for active note**, **Record status for active note**, **Open note history and timer**, **Review timers that ran while away**, and **Recover legacy timer** (only for local drafts from older previews). The ribbon/status-bar item opens history.
 
 New timestamps are saved in UTC (`Z`). Manual time and status dialogs use native local date/time pickers; history shows local time, with the stored timestamp available on hover. Older timestamps with explicit offsets remain readable without migration. Nonexistent local times during the spring clock change are rejected. During the repeated autumn hour the local picker uses the earlier occurrence; edit the saved timestamp with an explicit offset if the later occurrence is intended. Manual intervals require an end after the start. Correct saved records by opening their Markdown note, editing properties/text and refreshing history.
 
@@ -54,7 +54,7 @@ Status - 2026-11-20T08-00-00Z.d4e5f6.md
 
 `{timestamp}` is UTC to seconds, without milliseconds; colons become hyphens for Windows-safe names. `{date}` is its UTC calendar date. `{type}` is Timer or Status. The fixed suffix is six random hexadecimal characters, not a content hash. It is never expanded into a UUID. A filename collision is reported without overwriting or adding identity properties. Retry as a new record or resolve the note collision. Previous trailing `{hash}` patterns are interpreted as the new fixed suffix. New timestamp properties use UTC and retain millisecond precision for timer Start/Stop; manual inputs use seconds.
 
-Running timers are ordinary open Markdown records; no new local draft/session state is stored. Reloading or switching devices does not invent an end time. Idle/sleep time is not automatically subtracted; the interval ends only when explicitly stopped/switched or edited. The previous preview's local draft, if present, is preserved and requires explicit **Recover legacy timer** or discard before new timers can start. An interrupted legacy save retries its exact original bytes and path.
+Running timers are ordinary open Markdown records. Local reminders are observations only, not timer authority: path, start, user and quit/last-active time stay in this installation's vault-local storage. A 30-second heartbeat is the crash/mobile fallback. Plugin unload/reload is labelled last-active, not app-closing. Reloading or switching devices does not invent an end time. Idle/sleep time is not automatically subtracted; the interval ends only when explicitly stopped/switched or edited. The previous preview's local draft, if present, is preserved and requires explicit **Recover legacy timer** or discard before new timers can start. An interrupted legacy save retries its exact original bytes and path.
 
 Devices create independent records. Overlaps are flagged rather than merged; totals are withheld if scanned records overlap, have duplicate IDs or cannot be parsed. There is no cross-device timer lock or exactly-once guarantee for separate manual submissions. Tied status events have no inferred causal order.
 
@@ -72,7 +72,7 @@ node scripts/deploy.mjs /path/to/Test
 
 Artifacts are built into `dist/`. Deployment accepts only a vault named `Test`, copying `main.js`, `manifest.json` and `styles.css` into `.obsidian/plugins/track-record`. Settings, activation, workspace and records are preserved. Enable/reload manually in Test.
 
-TypeScript, Allman checks, build and 57 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
+TypeScript, Allman checks, build and 66 automated tests cover the core, real plugin methods against a simulated Obsidian boundary, sidebar controls and deployment. **They do not establish live desktop or Android behavior.** See the [manual test guide](docs/testing.md).
 
 ## Direction beyond the preview
 
@@ -100,8 +100,18 @@ Templater continues to handle general note creation and schema helpers. Bases Ex
 - [Manual testing and release gate](docs/testing.md)
 - [Existing plugins and naming research](docs/research.md)
 
-The preview's schema/capture decisions and remaining work are recorded in the architecture and roadmap. No source-status removal, existing-folder rename, automatic migration, analytics or network access is implemented.
+The preview's schema/capture decisions and remaining work are recorded in the architecture and roadmap. No source-status removal, existing-folder rename, automatic migration, analytics or background network service is implemented.
+
+## Privacy and interrupted timers
+
+There is no account, payment, telemetry or background network service. The plugin reads and writes tracking notes inside your vault. The current-user name and timer reminders use Obsidian's local storage, separate from synchronized plugin settings. The reminder stores only observed record paths, starts, owners and timestamps; it does not invent or close intervals. Markdown previews use Obsidian's renderer and may load remote embedded content that you enter, as ordinary Markdown previews do.
+
+A normal quit event records when Obsidian begins closing. That callback is not guaranteed after a crash or mobile termination, so the last heartbeat is explicitly approximate. On first installation no past closing time is invented. Only a still-open record with the same path, start and user triggers a reminder; a synced end, changed start or other user does not. Escape defers the decision; use **Review timers that ran while away** to reopen it. Unsynchronized notes may arrive later and then trigger the retained reminder. Wall-clock changes and unavailable local storage can limit reminders; records stay authoritative.
+
+## Release preparation
+
+Run `npm ci` and `npm run release:prepare`. This checks source, build and tests, then prepares runtime files, licenses, release notes and SHA-256 checksums in `dist/release/0.1.6/`. It creates no tag or GitHub release. See the [release checklist](docs/release.md). Test-vault acceptance is required before publishing; the user submits the approved release to the Community directory.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE). The bundled YAML parser has an ISC license; see [third-party notices](THIRD_PARTY_NOTICES.md).

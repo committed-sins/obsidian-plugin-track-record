@@ -1,3 +1,4 @@
+import { matchesObservation, pendingObservations, readPresence } from '../src/presence';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, stringify } from 'yaml';
@@ -443,4 +444,15 @@ test('notes heading defaults for older settings and rejects invalid section head
     for (const notesHeading of ['', '# Notes', 'Notes\nBody', 'x'.repeat(121)]) {
         assert.throws(() => validateSettings({ notesHeading }), /notes heading/);
     }
+});
+
+test('presence validates local observations and retains the earliest pending boundary per timer', () =>
+{
+    const observation = { path: 'records/Timer.md', start: '2026-11-19T09:00:00Z', user: 'Alice', at: '2026-11-19T10:00:00Z', reason: 'quit' as const };
+    const state = readPresence({ version: 1, pending: [observation], current: [{ ...observation, at: '2026-11-19T11:00:00Z' }] });
+    assert.deepEqual(pendingObservations(state), [observation]);
+    assert.equal(matchesObservation(observation, entry({ path: observation.path, start: observation.start, end: undefined, user: 'Alice' }), 'Alice'), true);
+    assert.equal(matchesObservation(observation, entry({ path: observation.path, start: observation.start, end: undefined, user: 'Bob' }), 'Alice'), false);
+    assert.deepEqual(readPresence(null).current, []);
+    assert.throws(() => readPresence({ version: 1, pending: [observation], current: [{ ...observation, at: 'not a timestamp' }] }));
 });

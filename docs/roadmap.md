@@ -70,6 +70,14 @@
 - [x] Separate Timer and Status view modes; pass 57 tests and spot-check the real Test UI.
 - [ ] Design configurable record types beyond status; keep interval behavior explicit per type.
 
+### Release candidate 0.1.6
+
+- [x] Record local quit/unload/heartbeat observations and review unchanged open timers after restart.
+- [x] Cover sync races, ownership changes, deferred reminders, invalid ends and write failures.
+- [x] Add official Obsidian lint, pinned read-only CI, minified runtime with dependency license and a local release package with checksums.
+- [ ] User acceptance of real Test-vault quit/reopen behavior before first release.
+- [ ] Optional follow-up: migrate the staged settings page to searchable declarative definitions (Obsidian 1.13+).
+
 ## 4. Validation and release
 
 - [x] Deploy development preview 0.1.0 to the authorized Test vault (2026-11-19), preserving activation and settings.

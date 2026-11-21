@@ -1,26 +1,39 @@
 {
   "name": "obsidian-plugin-track-record",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "private": true,
   "type": "module",
   "description": "Time tracking & status history for your notes.",
   "license": "MIT",
-  "dependencies": { "yaml": "2.9.1" },
+  "dependencies": {
+    "yaml": "2.9.1"
+  },
   "author": "Michael J. Stallinger",
-  "engines": { "node": ">=22" },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "node scripts/build.mjs",
     "typecheck": "tsc --noEmit",
     "format": "node scripts/format.mjs",
     "format:check": "node scripts/check-format.mjs",
     "test": "node scripts/test.mjs",
-    "check": "npm run typecheck && npm run format:check && npm run build && npm test",
-    "deploy": "npm run check && node scripts/deploy.mjs"
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run build && npm test",
+    "deploy": "npm run check && node scripts/deploy.mjs",
+    "lint": "eslint .",
+    "release:prepare": "npm run check && node scripts/prepare-release.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
     "esbuild": "0.28.2",
+    "eslint": "9.39.5",
+    "eslint-plugin-obsidianmd": "0.6.0",
     "obsidian": "1.14.4",
     "typescript": "^5.9.0"
+  },
+  "overrides": {
+    "eslint-plugin-n": {
+      "minimatch": "11.0.9"
+    }
   }
 }

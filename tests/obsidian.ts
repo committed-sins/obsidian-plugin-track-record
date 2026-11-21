@@ -55,9 +55,13 @@ export class Element
         this.children.push(child);
         return child;
     }
-    createDiv(): Element
+    createDiv(options?: { text?: string }): Element
     {
-        return this.createEl('div');
+        return this.createEl('div', options);
+    }
+    createSpan(options?: { text?: string }): Element
+    {
+        return this.createEl('span', options);
     }
 }
 
@@ -216,6 +220,10 @@ export class Control
     {
         return this;
     }
+    setClass(): this
+    {
+        return this;
+    }
     setWarning(): this
     {
         return this;
@@ -241,6 +249,10 @@ export class Setting
     setName(name: string): this
     {
         this.name = name; return this;
+    }
+    setHeading(): this
+    {
+        return this;
     }
     setDesc(): this
     {

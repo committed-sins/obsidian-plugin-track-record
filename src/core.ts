@@ -68,7 +68,7 @@ export function validateSettings(input: unknown): Settings
     result.timerFilename = filenameBase(result.timerFilename);
     result.statusFilename = filenameBase(result.statusFilename);
     for (const folder of [result.timerFolder, result.statusFolder]) {
-        if (!folder || folder.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || /[\\:*?"<>|\[\]#^\x00-\x1f]/.test(folder)) throw Error('Use a vault-relative folder without hidden folders, traversal or special characters.');
+        if (!folder || folder.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || /[\\:*?"<>|[\]#^\x00-\x1f]/.test(folder)) throw Error('Use a vault-relative folder without hidden folders, traversal or special characters.');
     }
     result.timeTag = result.timeTag.replace(/^#/, '');
     result.statusTag = result.statusTag.replace(/^#/, '');
@@ -78,7 +78,7 @@ export function validateSettings(input: unknown): Settings
     if (result.timeTag.toLowerCase() === result.statusTag.toLowerCase()) throw Error('Timer and status tags must differ (tags are case-insensitive).');
     for (const pattern of [result.timerFilename, result.statusFilename]) {
         if (!pattern || /[{}]/.test(pattern.replace(/\{(type|timestamp|date)\}/g, ''))) throw Error('Use filename tokens {type}, {timestamp}, {date}. The .{hash}.md suffix is appended automatically.');
-        if (/[\\/:*?"<>|\[\]#^\x00-\x1f]/.test(pattern) || pattern.startsWith('.') || /[. ]$/.test(pattern) || /\.md$/i.test(pattern)) throw Error('Enter a filename pattern without a folder or .md extension.');
+        if (/[\\/:*?"<>|[\]#^\x00-\x1f]/.test(pattern) || pattern.startsWith('.') || /[. ]$/.test(pattern) || /\.md$/i.test(pattern)) throw Error('Enter a filename pattern without a folder or .md extension.');
         if (pattern.length > 140) throw Error('Filename pattern is too long.');
     }
     for (const properties of [[result.timerSubjectProperty, result.startProperty, result.endProperty, result.userProperty], [result.statusSubjectProperty, result.statusStartProperty, result.statusProperty]]) {
@@ -132,8 +132,9 @@ export function isOpenEnd(value: unknown): boolean
     return value === null || value === undefined || (typeof value === 'string' && value.trim() === '');
 }
 
-export function validateUserName(value: string): string
+export function validateUserName(value: unknown): string
 {
+    if (typeof value !== 'string') throw Error('User name must be a string.');
     const name = value.trim();
     if (name.length > 80 || /[\r\n\x00-\x1f]/.test(name)) throw Error('Enter an optional user name of at most 80 characters without control characters.');
     return name;
@@ -199,7 +200,7 @@ export function validateSubject(input: unknown): Subject
 {
     if (!input || typeof input !== 'object') throw Error('Missing subject note.');
     const subject = input as Subject;
-    if (typeof subject.path !== 'string' || !subject.path.endsWith('.md') || subject.path.startsWith('/') || subject.path.split('/').some(p => !p || p === '.' || p === '..') || /[\\\[\]#|^\r\n\x00]/.test(subject.path)) throw Error('This note path cannot be represented by a safe wikilink.');
+    if (typeof subject.path !== 'string' || !subject.path.endsWith('.md') || subject.path.startsWith('/') || subject.path.split('/').some(p => !p || p === '.' || p === '..') || /[\\[\]#|^\r\n\x00]/.test(subject.path)) throw Error('This note path cannot be represented by a safe wikilink.');
     if (subject.id !== undefined && (typeof subject.id !== 'string' || !subject.id.trim())) throw Error('Invalid subject ID.');
     return { path: subject.path, ...(subject.id ? { id: subject.id } : {}) };
 }
@@ -304,12 +305,15 @@ function readRecord(data: Record<string, unknown>, note: string, path: string, s
     if (!Array.isArray(subjects) || !subjects.length) throw Error('Link at least one subject note.');
     const targets: Subject[] = [];
     for (const value of subjects) {
-        const link = typeof value === 'string' ? /^\[\[([^\[\]#|^]+)(?:\|[^\[\]]*)?\]\]$/.exec(value) : null;
+        const link = typeof value === 'string' ? /^\[\[([^[\]#|^]+)(?:\|[^[\]]*)?\]\]$/.exec(value) : null;
         if (!link) throw Error('Invalid subject link.');
         const target = validateSubject({ path: link[1].endsWith('.md') ? link[1] : link[1] + '.md' });
         if (!targets.some(existing => existing.path === target.path)) targets.push(target);
     }
-    if (meta?.subject_id) targets[0].id = String(meta.subject_id);
+    if (meta?.subject_id !== undefined) {
+        if (typeof meta.subject_id !== 'string') throw Error('Expected a string subject ID.');
+        targets[0].id = meta.subject_id;
+    }
     const string = (value: unknown): string =>
     {
         if (typeof value !== 'string') throw Error('Expected a string property.');

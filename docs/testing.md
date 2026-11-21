@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, an AST-based Allman check, browser/CJS bundling and 57 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
+Run `npm ci` followed by `npm run check` with Node.js 22+. The check includes strict TypeScript, the official Obsidian ESLint recommended rules, an AST-based Allman check, browser/CJS bundling and 66 tests. `npm run format` uses TypeScript formatting plus Allman placement for functions/classes; generated bundles and third-party code are excluded.
 
 Core tests cover YAML round-trips, configurable mappings, invalid dates/offsets, daylight-saving transitions, repeated statuses, equal-time ambiguity, overlaps, duplicate IDs, conflicting destinations, exact retries, interrupted local timers, failed writes and independent device drafts.
 
@@ -49,6 +49,10 @@ Desktop spot check (2026-11-20, preview 0.1.4): viewed the real bottom pane in T
 
 Desktop spot check (2026-11-20, preview 0.1.5): switched to Status while an existing timer kept running; opened the fuzzy subject picker and the editable status dropdown with an existing value. Ctrl+Enter with an empty status kept the dialog open and displayed validation. Markdown preview rendered the notes heading and a link. Discarded the draft and returned to the original note without creating a record. Successful keyboard save, multiple subjects and custom headings are covered at the simulated boundary; full live acceptance, Bases Excerpts section extraction and mobile remain pending.
 
+21. With an owned timer running, close Test normally, reopen it and confirm the reminder identifies the quit boundary. Continue must leave Markdown unchanged. Repeat and end at the proposed timestamp; verify the exact end and unchanged source note. Try a custom end, including an invalid end before start.
+22. For a crash fallback, allow a heartbeat before terminating the app without its quit callback. Reopen: the proposed timestamp must be explicitly labelled approximate. Plugin disable/re-enable must say last-active/plugin-stopped rather than claim the whole app closed.
+23. Dismiss a reminder and restart: it must return with the original pending boundary, or reopen via the review command. Complete the timer on another synced device before reopening: it must not prompt or overwrite that end. New/other-user timers must remain untouched.
+
 ## Mobile and synchronization — pending
 
 - Repeat commands, dialogs and recovery on Android; use command palette/ribbon where no status bar is available.
@@ -60,3 +64,5 @@ Desktop spot check (2026-11-20, preview 0.1.5): switched to Status while an exis
 ## First release
 
 Test deployment and user validation must precede the first release. Do not tag/publish 0.1.0 merely because the manifest contains that development version. The user approves the release and performs Community Plugins submission; temporary submission errors do not change this order.
+
+Automated interruption coverage includes quit and unload observations, crash fallback, dismissed decisions across restarts, late sync, end/start changes, ownership changes, invalid end, I/O failure, first-install behavior and malformed local state. Real app shutdown and mobile remain part of user acceptance.

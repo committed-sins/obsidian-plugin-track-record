@@ -1,6 +1,6 @@
 # Requirements
 
-Preview 0.1.5 uses optional user ownership across devices, record.* defaults, fixed short filename suffixes without ID properties, separate Timer/Status subject fields and multiple linked targets. No configured user closes only unassigned timers. Timer state is reconstructed from Markdown. Older preview drafts remain explicitly recoverable. See [architecture](architecture.md) and [testing](testing.md); later requirements below remain design work.
+Release candidate 0.1.6 uses optional user ownership across devices, record.* defaults, fixed short filename suffixes without ID properties, separate Timer/Status subject fields and multiple linked targets. No configured user closes only unassigned timers. Timer state is reconstructed from Markdown. Older preview drafts remain explicitly recoverable. See [architecture](architecture.md) and [testing](testing.md); later requirements below remain design work.
 
 ## Confirmed direction
 
@@ -57,3 +57,5 @@ Build an independent Obsidian plugin named **Track Record**, with the subtitle *
 Automated coverage now includes timestamp/DST handling, repeated statuses, guarded writes, timer recovery, simultaneous device drafts, subject renames and preservation of source notes. Recursive project aggregation is not implemented. Live desktop/Android checks remain pending.
 
 Future record types: allow separately configured kinds beyond status without making every kind an interval. Plan per-kind display name, identifying tag, folder, property mappings and notes section. This is a design direction, not part of the current two-type implementation.
+
+Implemented interruption review: keep only local observations of active timer paths/starts/owners and quit/last-active times. On reopening, ask about unchanged open records owned by the current user; never infer an end automatically. Pending reminders survive dismissal and late sync.

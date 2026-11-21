@@ -1,9 +1,11 @@
 import { AbstractInputSuggest, Component, FuzzySuggestModal, MarkdownRenderer, ItemView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, parseYaml, stringifyYaml, setIcon, type App } from 'obsidian';
-import { DEFAULTS, Timer as LegacyTimer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, hasRecordTag, historyWarnings, instant, utcTimestamp, localDateTime, localDateTimeToUtc, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, sameSubject, validateUserName, validateRecord, validateSettings, validateSubject, type RecordEntry, type Settings, type Subject, type TimerDraft, type Writer } from './core';
+import { DEFAULTS, Timer as LegacyTimer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, hasRecordTag, historyWarnings, instant, utcTimestamp, localDateTime, localDateTimeToUtc, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, validateUserName, validateRecord, validateSettings, validateSubject, type RecordEntry, type Settings, type Subject, type TimerDraft, type Writer } from './core';
+import { matchesObservation, observationKey, observeTimers, pendingObservations, readPresence, unresolvedObservations, type PresenceReason, type TimerObservation } from './presence';
 
 const VIEW = 'track-record-history';
 const LOCAL_KEY = 'track-record:timer:v1';
 const USER_KEY = 'track-record:user-name:v1';
+const PRESENCE_KEY = 'track-record:presence:v1';
 
 function render(record: RecordEntry): string
 {
@@ -13,6 +15,11 @@ function render(record: RecordEntry): string
 function recordBody(record: RecordEntry): string
 {
     return `## ${record.settings.notesHeading}\n\n${record.note}`;
+}
+
+function properties(value: unknown): Record<string, unknown> | null
+{
+    return value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
 function message(error: unknown): string
@@ -47,13 +54,21 @@ export default class TrackRecord extends Plugin
     private ready = false;
     private refreshTimeout = 0;
     private snapshotGeneration = 0;
+    presenceReady: Promise<void> = Promise.resolve();
+    private presenceInitialized = false;
+    private presenceEnabled = true;
+    private quitting = false;
+    private pendingInterruptions: TimerObservation[] = [];
+    private offeredInterruptions = new Set<string>();
+    private interruptionModal: InterruptionModal | null = null;
 
     async onload(): Promise<void>
     {
         try {
-            const saved = await this.loadData();
+            const saved: unknown = await this.loadData();
+            const savedProperties = properties(saved);
             this.settings = validateSettings(saved ?? DEFAULTS);
-            this.readProfiles = Array.isArray(saved?.readProfiles) ? saved.readProfiles.map((profile: unknown) => validateSettings(profile)) : [];
+            this.readProfiles = Array.isArray(savedProperties?.readProfiles) ? savedProperties.readProfiles.map((profile: unknown) => validateSettings(profile)) : [];
             this.ready = true;
         }
         catch (error) {
@@ -62,12 +77,14 @@ export default class TrackRecord extends Plugin
             // Do not overwrite malformed saved configuration or enable writes with fallback mappings.
             this.ready = false;
         }
-        const savedUser = this.app.loadLocalStorage(USER_KEY);
+        const savedUser: unknown = this.app.loadLocalStorage(USER_KEY);
         try { this.userName = validateUserName(savedUser ?? ''); }
         catch (error) { new Notice(`Track Record: ${message(error)} Set the current user in settings.`); this.ready = false; }
+        try { this.pendingInterruptions = pendingObservations(readPresence(this.app.loadLocalStorage(PRESENCE_KEY))); }
+        catch (error) { this.presenceEnabled = false; new Notice(`Track Record: ${message(error)} Timer reminders are unavailable.`, 12000); }
         // Read-only compatibility path until the user explicitly recovers an old preview draft.
         this.legacyTimer = new LegacyTimer({
-            read: () => this.app.loadLocalStorage(LOCAL_KEY),
+            read: (): unknown => this.app.loadLocalStorage(LOCAL_KEY),
             write: value => this.app.saveLocalStorage(LOCAL_KEY, value)
         }, {
             read: async path =>
@@ -127,6 +144,18 @@ export default class TrackRecord extends Plugin
             }
         });
         this.addCommand({
+            id: 'review-interrupted-timers', name: 'Review timers that ran while away', callback: () =>
+            {
+                void this.reviewInterruptedTimers();
+            }
+        });
+        this.registerInterval(window.setInterval(() => this.checkpointPresence('active'), 30000));
+        this.registerEvent(this.app.workspace.on('quit', () =>
+        {
+            this.quitting = true;
+            this.checkpointPresence('quit');
+        }));
+        this.addCommand({
             id: 'recover-timer', name: 'Recover legacy timer', callback: () =>
             {
                 void this.recoverTimer();
@@ -175,18 +204,94 @@ export default class TrackRecord extends Plugin
             try {
                 if (this.legacyTimer.get()) new Notice('Track Record: a local timer from an older preview is available. Use Recover legacy timer before starting a new timer.', 12000);
             } catch (error) { new Notice(`Track Record: ${message(error)}`, 12000); }
-            void this.snapshot().then(() =>
-            {
-                this.updateBar(); this.refreshViews();
-            });
+            this.presenceReady = this.initializePresence();
         });
     }
 
     onunload(): void
     {
+        if (!this.quitting) this.checkpointPresence('unload');
         this.alive = false;
+        this.interruptionModal?.close();
         window.clearTimeout(this.refreshTimeout);
-        // Open Markdown timers remain open. No local active-timer state is written.
+        // Closing the app/plugin writes only a local reminder, never an end time.
+    }
+
+    private async initializePresence(): Promise<void>
+    {
+        try {
+            const snapshot = await this.snapshot();
+            if (!this.alive || !this.presenceEnabled) return;
+            this.presenceInitialized = true;
+            this.reconcileInterruptions(snapshot.records, snapshot.errors);
+            this.checkpointPresence('active');
+            this.offerInterruption();
+            this.updateBar();
+            this.refreshViews();
+        } catch (error) { new Notice(`Track Record: could not check interrupted timers: ${message(error)}`, 10000); }
+    }
+
+    checkpointPresence(reason: PresenceReason): void
+    {
+        if (!this.alive || !this.presenceEnabled || !this.presenceInitialized || (this.quitting && reason !== 'quit')) return;
+        try {
+            this.app.saveLocalStorage(PRESENCE_KEY, {
+                version: 1,
+                current: observeTimers(this.activeTimers, this.userName, utcTimestamp(), reason),
+                pending: this.pendingInterruptions
+            });
+        } catch (error) {
+            this.presenceEnabled = false;
+            new Notice(`Track Record: could not save the local timer reminder: ${message(error)}`, 10000);
+        }
+    }
+
+    private reconcileInterruptions(records: RecordEntry[], errors: string[]): void
+    {
+        if (!this.presenceInitialized) return;
+        const pending = unresolvedObservations(this.pendingInterruptions, records, errors);
+        const changed = pending.length !== this.pendingInterruptions.length;
+        this.pendingInterruptions = pending;
+        if (changed) this.checkpointPresence('active');
+        this.offerInterruption();
+    }
+
+    private offerInterruption(): boolean
+    {
+        if (!this.alive || !this.presenceEnabled || !this.presenceInitialized || this.interruptionModal) return false;
+        const observation = this.pendingInterruptions.find(item => !this.offeredInterruptions.has(observationKey(item)) && this.activeTimers.some(record => matchesObservation(item, record, this.userName)));
+        if (!observation) return false;
+        this.offeredInterruptions.add(observationKey(observation));
+        const record = this.activeTimers.find(candidate => matchesObservation(observation, candidate, this.userName))!;
+        this.interruptionModal = new InterruptionModal(this, observation, record, () =>
+        {
+            this.interruptionModal = null;
+        });
+        this.interruptionModal.open();
+        return true;
+    }
+
+    async reviewInterruptedTimers(notify = true): Promise<void>
+    {
+        await this.presenceReady;
+        this.offeredInterruptions.clear();
+        await this.snapshot();
+        if (!this.interruptionModal && !this.offerInterruption() && notify) new Notice('Track Record: no matching interrupted timers are currently available.');
+    }
+
+    async resolveInterruption(observation: TimerObservation, end?: string): Promise<void>
+    {
+        if (observation.user !== this.userName) throw Error('Current user changed; reopen the timer reminder.');
+        if (!this.pendingInterruptions.some(item => observationKey(item) === observationKey(observation))) throw Error('This reminder has already been resolved.');
+        const snapshot = await this.snapshot();
+        if (end !== undefined) {
+            if (snapshot.errors.length) throw Error('Review invalid records in history before changing timers.');
+            const record = snapshot.records.find(candidate => matchesObservation(observation, candidate, this.userName));
+            if (record) await this.closeTimers([record], end);
+        }
+        this.pendingInterruptions = this.pendingInterruptions.filter(item => observationKey(item) !== observationKey(observation));
+        await this.snapshot();
+        this.checkpointPresence('active');
     }
 
     async run(action: () => Promise<void>): Promise<void>
@@ -234,13 +339,15 @@ export default class TrackRecord extends Plugin
         const name = validateUserName(value);
         this.app.saveLocalStorage(USER_KEY, name || null);
         this.userName = name;
+        this.checkpointPresence('active');
+        this.offerInterruption();
         this.updateBar();
         this.refreshViews();
     }
 
     private cachedSubject(file: TFile): Subject
     {
-        const id = this.app.metadataCache.getFileCache(file)?.frontmatter?.id;
+        const id: unknown = this.app.metadataCache.getFileCache(file)?.frontmatter?.id;
         return { path: file.path, ...(typeof id === 'string' && id.trim() ? { id } : {}) };
     }
 
@@ -249,9 +356,9 @@ export default class TrackRecord extends Plugin
         if (!this.isSubject(file)) throw Error('Open an ordinary Markdown note outside the record folder.');
         const data = await this.app.vault.read(file);
         const fm = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(data);
-        const properties = fm ? parseYaml(fm[1]) : null;
-        if (properties?.track_record || hasRecordTag(properties, this.profiles())) throw Error('A record cannot be used as its own subject.');
-        const id = properties?.id;
+        const dataProperties = fm ? properties(parseYaml(fm[1]) as unknown) : null;
+        if (dataProperties?.track_record || hasRecordTag(dataProperties, this.profiles())) throw Error('A record cannot be used as its own subject.');
+        const id = dataProperties?.id;
         if (id !== undefined && (typeof id !== 'string' || !id.trim())) throw Error('Subject id must be a non-empty string.');
         if (id) {
             const duplicate = this.app.vault.getMarkdownFiles().some(candidate => candidate.path !== file.path && this.app.metadataCache.getFileCache(candidate)?.frontmatter?.id === id);
@@ -415,7 +522,7 @@ export default class TrackRecord extends Plugin
                 const text = await this.app.vault.read(file);
                 const fm = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/.exec(text);
                 if (!fm) continue;
-                const data = parseYaml(fm[1]);
+                const data = properties(parseYaml(fm[1]) as unknown);
                 if (!data?.track_record && !hasRecordTag(data, this.profiles())) continue;
                 const record = parseRecord(text, file.path, parseYaml, this.profiles());
                 record.linkPath = record.subject.path;
@@ -429,7 +536,11 @@ export default class TrackRecord extends Plugin
                 records.push(record);
             } catch (error) { errors.push(`${file.path}: ${message(error)}`); }
         }
-        if (generation === this.snapshotGeneration) this.activeTimers = records.filter(record => record.kind === 'time' && !record.end);
+        if (generation === this.snapshotGeneration) {
+            this.activeTimers = records.filter(record => record.kind === 'time' && !record.end);
+            this.reconcileInterruptions(records, errors);
+            this.checkpointPresence('active');
+        }
         return { records, errors };
     }
 
@@ -481,6 +592,57 @@ export default class TrackRecord extends Plugin
         this.settings = next;
         this.ready = true;
         this.refreshViews();
+    }
+}
+
+class InterruptionModal extends Modal
+{
+    constructor(private plugin: TrackRecord, private observation: TimerObservation, private record: RecordEntry, private onClosed: () => void)
+    {
+        super(plugin.app);
+    }
+
+    onClose(): void
+    {
+        this.onClosed();
+    }
+
+    onOpen(): void
+    {
+        const observation = this.observation;
+        this.titleEl.setText('Timer kept running while you were away');
+        this.contentEl.createEl('p', { text: recordSubjects(this.record).map(subject => subject.path.replace(/\.md$/i, '')).join(', ') });
+        const label = observation.reason === 'quit' ? 'Obsidian began closing' : observation.reason === 'unload' ? 'Plugin stopped (last active)' : 'Last active (approximate; closing time was not recorded)';
+        this.contentEl.createEl('p', { text: `${label}: ${new Date(instant(observation.at)).toLocaleString()}` });
+        this.contentEl.createEl('p', { text: 'Was this intentional? The record stays open until you choose an end time. Dismiss to decide later using Review timers that ran while away.' });
+        let custom = localDateTime(new Date(instant(observation.at)));
+        new Setting(this.contentEl).setName('Other end time').setDesc('Local time; saved as UTC.').addText(text =>
+        {
+            text.inputEl.type = 'datetime-local';
+            text.inputEl.step = '1';
+            text.setValue(custom).onChange(value =>
+            {
+                custom = value;
+            });
+        });
+        const feedback = this.contentEl.createEl('p', { cls: 'track-record-warning' });
+        const resolve = async (end?: string): Promise<void> =>
+        {
+            let success = false;
+            await this.plugin.run(async () =>
+            {
+                try { await this.plugin.resolveInterruption(observation, end); success = true; }
+                catch (error) { feedback.setText(message(error)); throw error; }
+            });
+            if (success) { this.close(); await this.plugin.reviewInterruptedTimers(false); }
+        };
+        new Setting(this.contentEl).addButton(button => button.setButtonText('Continue timing').setCta().onClick(() => resolve()))
+            .addButton(button => button.setButtonText(observation.reason === 'quit' ? 'End when Obsidian closed' : 'End at last active time').onClick(() => resolve(observation.at)))
+            .addButton(button => button.setButtonText('Use other end time').onClick(async () =>
+            {
+                try { await resolve(localDateTimeToUtc(custom)); }
+                catch (error) { feedback.setText(message(error)); }
+            }));
     }
 }
 
@@ -565,7 +727,7 @@ class EntryModal extends Modal
             subjectsEl.empty();
             for (const path of subjectNotes) {
                 const chip = subjectsEl.createDiv({ cls: 'track-record-subject' });
-                chip.createEl('span', { text: path.replace(/\.md$/i, '') });
+                chip.createSpan({ text: path.replace(/\.md$/i, '') });
                 const remove = chip.createEl('button', { text: '\u00d7', attr: { 'aria-label': `Remove ${path}` } });
                 remove.addEventListener('click', () =>
                 {
@@ -736,7 +898,7 @@ class ConfirmModal extends Modal
     onOpen(): void
     {
         this.titleEl.setText(this.question);
-        new Setting(this.contentEl).addButton(button => button.setButtonText('Confirm discard').setWarning().onClick(async () =>
+        new Setting(this.contentEl).addButton(button => button.setButtonText('Confirm discard').setClass('track-record-discard').onClick(async () =>
         {
             await this.plugin.run(this.action);
             this.close();
@@ -816,7 +978,7 @@ class HistoryView extends ItemView
         const selected = this.plugin.selected;
         const dashboard = root.createDiv({ cls: 'track-record-dashboard' });
         const current = dashboard.createDiv({ cls: 'track-record-current' });
-        current.createEl('div', { text: 'Current note', cls: 'track-record-label' });
+        current.createDiv({ text: 'Current note', cls: 'track-record-label' });
         current.createEl('strong', { text: selected ? selected.path.replace(/\.md$/i, '') : 'Open a note to start tracking' });
         const ownTimers = ownedOpenTimers(snapshot.records, this.plugin.userName);
         const runningHere = selected && ownTimers.some(timer => relatesTo(timer, selected));
@@ -831,9 +993,9 @@ class HistoryView extends ItemView
         for (const timer of this.kind === 'time' ? this.plugin.activeTimers : []) {
             const active = dashboard.createDiv({ cls: 'track-record-running' });
             this.clocks.set(timer.id, active.createEl('strong'));
-            active.createEl('div', { text: timer.user ?? 'No user', cls: 'track-record-label' });
-            active.createEl('div', { text: recordSubjects(timer).map(target => target.path.replace(/\.md$/i, '')).join(', '), cls: 'track-record-subtle' });
-            active.createEl('div', { text: `Started ${new Date(instant(timer.start)).toLocaleString()}`, cls: 'track-record-subtle' });
+            active.createDiv({ text: timer.user ?? 'No user', cls: 'track-record-label' });
+            active.createDiv({ text: recordSubjects(timer).map(target => target.path.replace(/\.md$/i, '')).join(', '), cls: 'track-record-subtle' });
+            active.createDiv({ text: `Started ${new Date(instant(timer.start)).toLocaleString()}`, cls: 'track-record-subtle' });
             if ((timer.user ?? '') === this.plugin.userName && !runningHere) new Setting(active).addButton(button => button.setButtonText('Stop timer').onClick(() => this.plugin.stopTimer()));
         }
         this.updateClock();
@@ -873,9 +1035,9 @@ class HistoryView extends ItemView
         for (const record of records) {
             const row = root.createDiv({ cls: 'track-record-entry' });
             row.createEl('strong', { text: record.kind === 'time' ? `Timer · ${record.end ? elapsed(duration(record)) : 'Open'}` : `Status · ${record.status}` });
-            row.createEl('div', { text: new Date(instant(record.start)).toLocaleString() + (record.end ? ` \u2192 ${new Date(instant(record.end)).toLocaleString()}` : ''), attr: { title: record.start + (record.end ? ` \u2192 ${record.end}` : '') } });
-            if (record.kind === 'time' && record.user) row.createEl('div', { text: record.user });
-            if (recordSubjects(record).length > 1) row.createEl('div', { text: 'Shared record · counts once in the all-notes total' });
+            row.createDiv({ text: new Date(instant(record.start)).toLocaleString() + (record.end ? ` \u2192 ${new Date(instant(record.end)).toLocaleString()}` : ''), attr: { title: record.start + (record.end ? ` \u2192 ${record.end}` : '') } });
+            if (record.kind === 'time' && record.user) row.createDiv({ text: record.user });
+            if (recordSubjects(record).length > 1) row.createDiv({ text: 'Shared record · counts once in the all-notes total' });
             if (this.allRecords || !selected) {
                 for (const target of recordSubjects(record)) {
                     const source = row.createEl('button', { text: target.path.replace(/\.md$/i, ''), cls: 'track-record-link' });
@@ -929,7 +1091,6 @@ class RecordSettings extends PluginSettingTab
     display(): void
     {
         this.containerEl.empty();
-        this.containerEl.createEl('h2', { text: 'Track Record' });
         this.containerEl.createEl('p', { text: 'Timer and status records can share a folder or use separate folders. Tags identify the record type wherever a file is stored.' });
         const draft = { ...this.plugin.settings };
         let userName = this.plugin.userName;
@@ -937,13 +1098,13 @@ class RecordSettings extends PluginSettingTab
         {
             draft.notesHeading = value;
         }));
-        this.containerEl.createEl('h3', { text: 'Current user' });
+        new Setting(this.containerEl).setName('Current user').setHeading();
         new Setting(this.containerEl).setName('User name').setDesc('Optional local setting. Use the same name on your devices. Empty closes only timers without a user; a configured name closes only that user’s timers. This is an organizational label, not access control.').addText(text => text.setValue(userName).onChange(value =>
         {
             userName = value;
         }));
         for (const kind of ['time', 'status'] as const) {
-            this.containerEl.createEl('h3', { text: kind === 'time' ? 'Timer' : 'Status' });
+            new Setting(this.containerEl).setName(kind === 'time' ? 'Timer' : 'Status').setHeading();
             const folderKey = kind === 'time' ? 'timerFolder' : 'statusFolder';
             const tagKey = kind === 'time' ? 'timeTag' : 'statusTag';
             const filenameKey = kind === 'time' ? 'timerFilename' : 'statusFilename';

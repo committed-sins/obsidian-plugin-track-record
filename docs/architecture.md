@@ -1,6 +1,6 @@
 # Data model and architecture
 
-## Preview 0.1.5
+## Release candidate 0.1.6
 
 - Timer and Status records are ordinary Markdown notes. New notes have no `id` or `track_record` identity field. Their vault paths identify them internally. Existing IDs/envelopes are read for compatibility only.
 - Each type has a configurable filename base (`{type} - {timestamp}` by default), with a fixed six-character random `.{hash}.md` suffix. Never lengthen it to a UUID. A collision reports an ordinary note conflict without overwriting. No extra sync identity or collision-repair protocol is promised.
@@ -47,6 +47,12 @@ status: ongoing
 ## Entry dialogs and sections
 
 Subject selections use a FuzzySuggestModal and a deduplicated set of paths; save revalidates targets. AbstractInputSuggest provides editable status suggestions from parsed status records across current and retained mappings. Ctrl/Cmd+Enter invokes the same guarded save action as the button, including frozen retries. Notes are literal Markdown under a configurable level-two heading. A link picker uses Obsidian's link-format preference relative to the destination folder; MarkdownRenderer supplies an explicit preview with a modal-owned Component lifecycle. Existing records and frozen legacy pending-save bytes are not rewritten. Timer and Status view modes share note/scope selection but separate actions, records and work totals.
+
+## Local interruption reminders
+
+`track-record:presence:v1` is vault-local installation storage, separate from shared settings. Current observations contain only a record path, start, exact owner, timestamp and boundary reason. They never establish whether an interval is open: Markdown is authoritative. Workspace quit records the beginning of a normal shutdown; plugin unload is explicitly different. A 30-second heartbeat is best effort for crashes/mobile kills. Observation snapshots update after record scans and explicit operations.
+
+On startup, current observations join any deferred reminders, keeping the earliest unresolved boundary per path/start/user. Match fresh open records for the current user only. The modal offers continue, the observed end or a custom local end converted to UTC. The guarded Vault.process path revalidates the current record before an end is written. Newly created timers and other users are excluded. A synced end/replacement clears a stale reminder; missing or invalid files retain it for late synchronization. Dismissing preserves the decision across restarts; a review command reopens it. No background record writes occur. Corrupt local reminders are preserved and disabled with a notice rather than overwritten.
 
 ## Compatibility and indexing
 
