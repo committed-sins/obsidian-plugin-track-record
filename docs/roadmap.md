@@ -75,7 +75,7 @@
 - [x] Record local quit/unload/heartbeat observations and review unchanged open timers after restart.
 - [x] Cover sync races, ownership changes, deferred reminders, invalid ends and write failures.
 - [x] Add official Obsidian lint, pinned read-only CI, minified runtime with dependency license and a local release package with checksums.
-- [ ] User acceptance of real Test-vault quit/reopen behavior before first release.
+- [x] User accepted the current Test-vault version for the first release on 2026-11-21. The detailed shutdown/mobile matrix remains a separate verification task.
 - [ ] Optional follow-up: migrate the staged settings page to searchable declarative definitions (Obsidian 1.13+).
 
 ## 4. Validation and release

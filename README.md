@@ -4,7 +4,7 @@
 
 Track Record records work intervals and note status events as linked Markdown records in your vault.
 
-**Release candidate 0.1.6. Test-vault evaluation comes before the first release. No public release or Community Plugins submission yet.**
+**Version 0.1.6 - first public release.** Download it from [GitHub Releases](https://github.com/committed-sins/obsidian-plugin-track-record/releases/tag/0.1.6). The Community Plugins submission is pending.
 
 ## Preview features
 

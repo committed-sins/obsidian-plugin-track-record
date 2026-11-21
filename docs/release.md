@@ -1,6 +1,6 @@
 # Release checklist - 0.1.6
 
-Prepared 2026-11-21. This is a candidate for the first public release. No tag, release or Community submission is created by the preparation command.
+First public release 0.1.6 approved by the user on 2026-11-21 after Test-vault evaluation. The preparation command itself creates no tag, release or Community submission.
 
 ## Prepared
 
@@ -13,13 +13,12 @@ Prepared 2026-11-21. This is a candidate for the first public release. No tag, r
 - Read-only GitHub Actions checks on Windows and Linux with pinned action commits. It performs no release or vault deployment.
 - Local preparation: `npm ci`, then `npm run release:prepare`.
 
-## Acceptance still required
+## Acceptance status
 
-- Load the updated plugin in Test. The first load initializes observations; it cannot know a prior shutdown.
-- Start a timer, close Test normally and reopen. Verify continue, end-at-close and custom end choices; dismiss/reopen a reminder.
-- Confirm ordinary source notes, settings and existing records remain unchanged except the chosen timer end.
-- Check real mobile interruption/synchronization before claiming mobile behavior is verified. Bases Excerpts section extraction is a separate pending integration check.
-- Obtain explicit user release approval after Test-vault acceptance.
+- The user accepted the current Test-vault version as the first release on 2026-11-21.
+- Initial evaluation is accepted; this does not claim every shutdown, mobile or sync scenario has been measured. The full manual matrix remains in testing.md.
+- Mobile interruption/synchronization and Bases Excerpts section extraction remain pending integration checks.
+- The user performs the Community directory submission after publication.
 
 ## Prepared files
 

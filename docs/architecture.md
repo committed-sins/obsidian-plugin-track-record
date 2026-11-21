@@ -1,6 +1,6 @@
 # Data model and architecture
 
-## Release candidate 0.1.6
+## Release 0.1.6
 
 - Timer and Status records are ordinary Markdown notes. New notes have no `id` or `track_record` identity field. Their vault paths identify them internally. Existing IDs/envelopes are read for compatibility only.
 - Each type has a configurable filename base (`{type} - {timestamp}` by default), with a fixed six-character random `.{hash}.md` suffix. Never lengthen it to a UUID. A collision reports an ordinary note conflict without overwriting. No extra sync identity or collision-repair protocol is promised.

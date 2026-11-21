@@ -1,6 +1,6 @@
 # Requirements
 
-Release candidate 0.1.6 uses optional user ownership across devices, record.* defaults, fixed short filename suffixes without ID properties, separate Timer/Status subject fields and multiple linked targets. No configured user closes only unassigned timers. Timer state is reconstructed from Markdown. Older preview drafts remain explicitly recoverable. See [architecture](architecture.md) and [testing](testing.md); later requirements below remain design work.
+Release 0.1.6 uses optional user ownership across devices, record.* defaults, fixed short filename suffixes without ID properties, separate Timer/Status subject fields and multiple linked targets. No configured user closes only unassigned timers. Timer state is reconstructed from Markdown. Older preview drafts remain explicitly recoverable. See [architecture](architecture.md) and [testing](testing.md); later requirements below remain design work.
 
 ## Confirmed direction
 
