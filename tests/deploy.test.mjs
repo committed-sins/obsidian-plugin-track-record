@@ -18,7 +18,7 @@ test('deployment copies only runtime artifacts and preserves settings and activa
     const artifacts = path.join(base, 'artifacts');
     await fs.mkdir(artifacts);
     for (const [file, content] of Object.entries({ 'main.js': 'code', 'manifest.json': '{"id":"track-record"}', 'styles.css': 'css' })) await fs.writeFile(path.join(artifacts, file), content);
-    assert.equal(await deploy({ root: vault, artifacts }), target);
+    assert.equal(await deploy({ root: vault, artifacts }), await fs.realpath(target));
     assert.equal(await fs.readFile(path.join(target, 'data.json'), 'utf8'), '{"preserve":true}');
     assert.equal(await fs.readFile(path.join(config, 'community-plugins.json'), 'utf8'), '["example"]');
     assert.equal(await fs.readFile(path.join(config, 'workspace.json'), 'utf8'), 'workspace');
