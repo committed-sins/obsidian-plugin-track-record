@@ -4,7 +4,7 @@
 
 Track Record records work intervals and note status events as linked Markdown records in your vault.
 
-**Version 0.1.7.** Download it from [GitHub Releases](https://github.com/committed-sins/obsidian-plugin-track-record/releases/tag/0.1.7).
+**Version 0.1.8.** Download it from [GitHub Releases](https://github.com/committed-sins/obsidian-plugin-track-record/releases/tag/0.1.8).
 
 **Date/time display format** controls how dates and times appear in history, running timers and interruption reminders, including for older records. The default is `YYYY-MM-DD HH:mm:ss`. Try `DD.MM.YYYY HH:mm` for a day-first display. [Moment format tokens](https://momentjs.com/docs/#/displaying/format/)
 
