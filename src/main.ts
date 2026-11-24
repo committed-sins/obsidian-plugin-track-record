@@ -1,4 +1,4 @@
-import { AbstractInputSuggest, Component, FuzzySuggestModal, MarkdownRenderer, ItemView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, parseYaml, stringifyYaml, setIcon, type App } from 'obsidian';
+import { AbstractInputSuggest, Component, FuzzySuggestModal, MarkdownRenderer, ItemView, Modal, Notice, Plugin, PluginSettingTab, Setting, TFile, TFolder, WorkspaceLeaf, parseYaml, stringifyYaml, setIcon, moment, type App } from 'obsidian';
 import { DEFAULTS, Timer as LegacyTimer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, hasRecordTag, historyWarnings, instant, utcTimestamp, localDateTime, localDateTimeToUtc, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, validateUserName, validateRecord, validateSettings, validateSubject, type RecordEntry, type Settings, type Subject, type TimerDraft, type Writer } from './core';
 import { matchesObservation, observationKey, observeTimers, pendingObservations, readPresence, unresolvedObservations, type PresenceReason, type TimerObservation } from './presence';
 
@@ -568,6 +568,11 @@ export default class TrackRecord extends Plugin
         }
     }
 
+    formatTimestamp(value: string, format = this.settings.dateTimeFormat): string
+    {
+        return moment(instant(value)).format(format);
+    }
+
     updateBar(): void
     {
         if (!this.alive || !this.bar) return;
@@ -613,7 +618,7 @@ class InterruptionModal extends Modal
         this.titleEl.setText('Timer kept running while you were away');
         this.contentEl.createEl('p', { text: recordSubjects(this.record).map(subject => subject.path.replace(/\.md$/i, '')).join(', ') });
         const label = observation.reason === 'quit' ? 'Obsidian began closing' : observation.reason === 'unload' ? 'Plugin stopped (last active)' : 'Last active (approximate; closing time was not recorded)';
-        this.contentEl.createEl('p', { text: `${label}: ${new Date(instant(observation.at)).toLocaleString()}` });
+        this.contentEl.createEl('p', { text: `${label}: ${this.plugin.formatTimestamp(observation.at)}` });
         this.contentEl.createEl('p', { text: 'Was this intentional? The record stays open until you choose an end time. Dismiss to decide later using Review timers that ran while away.' });
         let custom = localDateTime(new Date(instant(observation.at)));
         new Setting(this.contentEl).setName('Other end time').setDesc('Local time; saved as UTC.').addText(text =>
@@ -995,7 +1000,7 @@ class HistoryView extends ItemView
             this.clocks.set(timer.id, active.createEl('strong'));
             active.createDiv({ text: timer.user ?? 'No user', cls: 'track-record-label' });
             active.createDiv({ text: recordSubjects(timer).map(target => target.path.replace(/\.md$/i, '')).join(', '), cls: 'track-record-subtle' });
-            active.createDiv({ text: `Started ${new Date(instant(timer.start)).toLocaleString()}`, cls: 'track-record-subtle' });
+            active.createDiv({ text: `Started ${this.plugin.formatTimestamp(timer.start)}`, cls: 'track-record-subtle' });
             if ((timer.user ?? '') === this.plugin.userName && !runningHere) new Setting(active).addButton(button => button.setButtonText('Stop timer').onClick(() => this.plugin.stopTimer()));
         }
         this.updateClock();
@@ -1035,7 +1040,7 @@ class HistoryView extends ItemView
         for (const record of records) {
             const row = root.createDiv({ cls: 'track-record-entry' });
             row.createEl('strong', { text: record.kind === 'time' ? `Timer · ${record.end ? elapsed(duration(record)) : 'Open'}` : `Status · ${record.status}` });
-            row.createDiv({ text: new Date(instant(record.start)).toLocaleString() + (record.end ? ` \u2192 ${new Date(instant(record.end)).toLocaleString()}` : ''), attr: { title: record.start + (record.end ? ` \u2192 ${record.end}` : '') } });
+            row.createDiv({ text: this.plugin.formatTimestamp(record.start) + (record.end ? ` \u2192 ${this.plugin.formatTimestamp(record.end)}` : ''), attr: { title: record.start + (record.end ? ` \u2192 ${record.end}` : '') } });
             if (record.kind === 'time' && record.user) row.createDiv({ text: record.user });
             if (recordSubjects(record).length > 1) row.createDiv({ text: 'Shared record · counts once in the all-notes total' });
             if (this.allRecords || !selected) {
@@ -1094,6 +1099,17 @@ class RecordSettings extends PluginSettingTab
         this.containerEl.createEl('p', { text: 'Timer and status records can share a folder or use separate folders. Tags identify the record type wherever a file is stored.' });
         const draft = { ...this.plugin.settings };
         let userName = this.plugin.userName;
+        const formatPreview = this.containerEl.createDiv({ cls: 'track-record-subtle' });
+        const updateFormatPreview = (): void =>
+        {
+            formatPreview.setText(`Example: ${this.plugin.formatTimestamp(utcTimestamp(), draft.dateTimeFormat)}`);
+        };
+        new Setting(this.containerEl).setName('Date/time display format').setDesc('Local time. Moment format, e.g. YYYY-MM-DD HH:mm:ss or DD.MM.YYYY HH:mm. Used in history, running timers and interruption reminders. Stored timestamps and filenames are unchanged.').addText(text => text.setValue(draft.dateTimeFormat).onChange(value =>
+        {
+            draft.dateTimeFormat = value;
+            updateFormatPreview();
+        }));
+        updateFormatPreview();
         new Setting(this.containerEl).setName('Notes heading').setDesc('Heading text for the Markdown notes section (level 2). Applies to new records; existing records stay unchanged.').addText(text => text.setValue(draft.notesHeading).onChange(value =>
         {
             draft.notesHeading = value;

@@ -6,6 +6,8 @@ Track Record records work intervals and note status events as linked Markdown re
 
 **Version 0.1.6 - first public release.** Download it from [GitHub Releases](https://github.com/committed-sins/obsidian-plugin-track-record/releases/tag/0.1.6). The Community Plugins submission is pending.
 
+Development branch: preview 0.1.7 adds **Date/time display format** with a live example. Default: `YYYY-MM-DD HH:mm:ss`; alternative: `DD.MM.YYYY HH:mm`. Uses [Moment format tokens](https://momentjs.com/docs/#/displaying/format/). This affects local display only, including older records; stored UTC values and filenames stay unchanged.
+
 ## Preview features
 
 - Start/stop a timer across devices for the current optional user. Without a configured user, only unassigned timers are closed. Starting closes matching open timers at the replacement's start time.

@@ -440,6 +440,9 @@ test('UTC storage and local picker handle winter, summer and invalid local dates
 test('notes heading defaults for older settings and rejects invalid section headings', () =>
 {
     assert.equal(validateSettings({}).notesHeading, 'Notes');
+    assert.equal(validateSettings({}).dateTimeFormat, 'YYYY-MM-DD HH:mm:ss');
+    assert.throws(() => validateSettings({ dateTimeFormat: '' }), /display format/);
+    assert.throws(() => validateSettings({ dateTimeFormat: 'YYYY\nMM' }), /display format/);
     assert.equal(validateSettings({ notesHeading: 'Work details' }).notesHeading, 'Work details');
     for (const notesHeading of ['', '# Notes', 'Notes\nBody', 'x'.repeat(121)]) {
         assert.throws(() => validateSettings({ notesHeading }), /notes heading/);

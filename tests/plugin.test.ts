@@ -186,8 +186,15 @@ test('settings retain older property profiles outside Markdown records', async (
     assert.ok([...f.texts.values()].every(text => !text.includes('track_record:')));
 });
 
-test('settings distinguish Timer and Status folders from tag inputs', async () =>
+test('settings distinguish Timer and Status folders from tag inputs', async t =>
 {
+    const previousZone = process.env.TZ;
+    process.env.TZ = 'Europe/Vienna';
+    t.after(() =>
+    {
+        if (previousZone === undefined) delete process.env.TZ;
+        else process.env.TZ = previousZone;
+    });
     settings.length = 0;
     const f = fixture();
     const plugin = f.plugin();
@@ -200,11 +207,17 @@ test('settings distinguish Timer and Status folders from tag inputs', async () =
     assert.equal(tags[0].controls[0].text, '#record/time');
     folders[1].controls[0].change('records/statuses');
     tags[1].controls[0].change('#record/state');
+    const displayFormat = settings.find(setting => setting.name === 'Date/time display format')!.controls[0];
+    assert.equal(displayFormat.text, 'YYYY-MM-DD HH:mm:ss');
+    displayFormat.change('DD.MM.YYYY HH:mm');
+    assert.match(plugin.formatTimestamp('2026-11-19T09:00:00+01:00'), /^2026-11-19 \d{2}:\d{2}:00$/);
     const save = settings.flatMap(setting => setting.controls).find(control => control.text === 'Save settings')!;
     await save.click();
     assert.equal(plugin.settings.timerFolder, 'records/track-record');
     assert.equal(plugin.settings.statusFolder, 'records/statuses');
     assert.equal(plugin.settings.statusTag, 'record/state');
+    assert.equal(plugin.settings.dateTimeFormat, 'DD.MM.YYYY HH:mm');
+    assert.match(plugin.formatTimestamp('2026-11-19T09:00:00+01:00'), /^19\.11\.2026 \d{2}:\d{2}$/);
 });
 
 test('sidebar exposes current-note timer controls and a ticking timer without losing note scope', async () =>

@@ -1,4 +1,5 @@
 import { parse, stringify } from 'yaml';
+export { default as moment } from 'moment';
 
 export const parseYaml = parse;
 export const stringifyYaml = stringify;

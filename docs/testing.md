@@ -66,3 +66,5 @@ Desktop spot check (2026-11-20, preview 0.1.5): switched to Status while an exis
 Test deployment and user validation must precede the first release. Do not tag/publish 0.1.0 merely because the manifest contains that development version. The user approves the release and performs Community Plugins submission; temporary submission errors do not change this order.
 
 Automated interruption coverage includes quit and unload observations, crash fallback, dismissed decisions across restarts, late sync, end/start changes, ownership changes, invalid end, I/O failure, first-install behavior and malformed local state. Real app shutdown and mobile remain part of user acceptance.
+
+Preview 0.1.7: change Date/time display format, inspect the live example and Save. Verify older history entries, running-timer start labels and interruption reminders all use the current format. Default YYYY-MM-DD HH:mm:ss should use a 24-hour clock; try DD.MM.YYYY HH:mm. Confirm saved UTC values and filename formats are unchanged. Native datetime-local picker formatting remains platform-controlled.

@@ -16,6 +16,7 @@ export interface Settings
     statusStartProperty: string;
     statusProperty: string;
     notesHeading: string;
+    dateTimeFormat: string;
 }
 
 export const DEFAULTS: Settings = {
@@ -23,7 +24,7 @@ export const DEFAULTS: Settings = {
     timerFilename: '{type} - {timestamp}', statusFilename: '{type} - {timestamp}',
     timeTag: 'record/time', statusTag: 'record/status',
     timerSubjectProperty: 'contexts', statusSubjectProperty: 'contexts', startProperty: 'record.start', endProperty: 'record.end', userProperty: 'record.user',
-    statusStartProperty: 'record.start', statusProperty: 'status', notesHeading: 'Notes'
+    statusStartProperty: 'record.start', statusProperty: 'status', notesHeading: 'Notes', dateTimeFormat: 'YYYY-MM-DD HH:mm:ss'
 };
 
 export interface Subject
@@ -65,6 +66,7 @@ export function validateSettings(input: unknown): Settings
         result[key] = raw.trim();
     }
     if (!result.notesHeading || result.notesHeading.length > 120 || /[\r\n#\x00-\x1f]/.test(result.notesHeading)) throw Error('Use a non-empty notes heading without # or line breaks (up to 120 characters).');
+    if (!result.dateTimeFormat || result.dateTimeFormat.length > 120 || /[\r\n\x00-\x1f]/.test(result.dateTimeFormat)) throw Error('Use a date/time display format of 1 to 120 characters without line breaks.');
     result.timerFilename = filenameBase(result.timerFilename);
     result.statusFilename = filenameBase(result.statusFilename);
     for (const folder of [result.timerFolder, result.statusFolder]) {
