@@ -119,7 +119,7 @@ export default class TrackRecord extends Plugin
         {
             void this.openHistory();
         });
-        this.addRibbonIcon('list', 'Track Record: open status view', () =>
+        this.addRibbonIcon('workflow', 'Track Record: open status view', () =>
         {
             void this.openHistory('status');
         });
@@ -953,7 +953,7 @@ class HistoryView extends ItemView
 
     getIcon(): string
     {
-        return this.kind === 'time' ? 'timer' : 'list';
+        return this.kind === 'time' ? 'timer' : 'workflow';
     }
 
     async onOpen(): Promise<void>
