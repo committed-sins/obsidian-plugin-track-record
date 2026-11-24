@@ -37,7 +37,6 @@
 .track-record-notes .setting-item-control { margin-top: var(--size-4-2); }
 .track-record-notes textarea { width: 100%; min-height: 12rem; resize: vertical; font-family: var(--font-text); }
 .track-record-notes-preview:not(:empty) { padding: var(--size-4-3); border: 1px solid var(--background-modifier-border); border-radius: var(--radius-m); overflow-wrap: anywhere; }
-.track-record-modes { width: fit-content; margin-bottom: var(--size-4-3); }
 
 .track-record-discard { color: var(--text-error); }
 
@@ -45,3 +44,8 @@
 .track-record-subject-section > .setting-item-info { flex: 1 1 15rem; margin-right: 0; }
 .track-record-subject-section > .setting-item-control { flex: 0 0 auto; }
 .track-record-subject button { height: 22px; min-height: 22px; line-height: 1; }
+
+.track-record-note-actions .setting-item { border-top: 0; padding: var(--size-4-2) 0 0; }
+.track-record-note-actions .setting-item-info { display: none; }
+.track-record-note-actions .setting-item-control { flex-wrap: wrap; }
+.track-record-setting-example { margin-top: var(--size-4-1); overflow-wrap: anywhere; }

@@ -8,17 +8,19 @@ Track Record records work intervals and note status events as linked Markdown re
 
 Development branch: preview 0.1.7 adds **Date/time display format** with a live example. Default: `YYYY-MM-DD HH:mm:ss`; alternative: `DD.MM.YYYY HH:mm`. Uses [Moment format tokens](https://momentjs.com/docs/#/displaying/format/). This affects local display only, including older records; stored UTC values and filenames stay unchanged.
 
+The 0.1.7 preview also separates Timer and Status into independent dockable windows. Settings examples sit below their own controls; note-link and preview actions are grouped with the notes field.
+
 ## Preview features
 
 - Start/stop a timer across devices for the current optional user. Without a configured user, only unassigned timers are closed. Starting closes matching open timers at the replacement's start time.
 - Add manual time records and explicit status events in separate dialogs. Ctrl+Enter (Cmd+Enter on macOS) saves and closes only on success.
 - Choose subject notes with Obsidian's fuzzy note picker; remove individual selections. The status input suggests distinct values from all readable status records, using their configured property paths, while accepting new values.
 - Write Markdown notes in a larger field, insert note links with the native picker and preview them. New records always include a level-two notes heading (Settings: **Notes heading**, default **Notes**) for section extraction.
-- Switch the history view between Timer and Status, then choose the selected note or all notes. Inspect work totals, record links and warnings about overlaps, duplicate IDs and tied status times.
+- Open separate **Track Record Timer** and **Track Record Status** windows, then choose the selected note or all notes independently. Inspect work totals, record links and warnings about overlaps, duplicate IDs and tied status times.
 - Reconstruct running timers from Markdown after reload/shutdown. A local reminder records the quit time or last active heartbeat; on reopening you can continue, end at that time or choose another end. Nothing ends automatically.
 - Configure Timer and Status separately: folder, identifying tag and filename format. They can share a folder. Earlier property/tag mappings are retained in plugin settings, not in the Markdown notes.
 
-Commands are prefixed **Track Record** in the command palette: **Start timer for active note**, **Stop timer**, **Add manual time record for active note**, **Record status for active note**, **Open note history and timer**, **Review timers that ran while away**, and **Recover legacy timer** (only for local drafts from older previews). The ribbon/status-bar item opens history.
+Commands are prefixed **Track Record** in the command palette: **Start timer for active note**, **Stop timer**, **Add manual time record for active note**, **Record status for active note**, **Open timer view**, **Open status view**, **Review timers that ran while away**, and **Recover legacy timer** (only for local drafts from older previews). The timer and list ribbon icons open their respective windows; the status-bar item opens Timer.
 
 New timestamps are saved in UTC (`Z`). Manual time and status dialogs use native local date/time pickers; history shows local time, with the stored timestamp available on hover. Older timestamps with explicit offsets remain readable without migration. Nonexistent local times during the spring clock change are rejected. During the repeated autumn hour the local picker uses the earlier occurrence; edit the saved timestamp with an explicit offset if the later occurrence is intended. Manual intervals require an end after the start. Correct saved records by opening their Markdown note, editing properties/text and refreshing history.
 

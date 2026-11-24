@@ -207,7 +207,12 @@ test('settings distinguish Timer and Status folders from tag inputs', async t =>
     assert.equal(tags[0].controls[0].text, '#record/time');
     folders[1].controls[0].change('records/statuses');
     tags[1].controls[0].change('#record/state');
-    const displayFormat = settings.find(setting => setting.name === 'Date/time display format')!.controls[0];
+    const displaySetting = settings.find(setting => setting.name === 'Date/time display format')!;
+    assert.ok(displaySetting.descEl.children.some(node => node.text.startsWith('Example: ')));
+    const filenameSettings = settings.filter(setting => setting.name === 'Filename format');
+    assert.equal(filenameSettings.length, 2);
+    assert.ok(filenameSettings.every(setting => setting.descEl.children.some(node => node.text.startsWith('Example: '))));
+    const displayFormat = displaySetting.controls[0];
     assert.equal(displayFormat.text, 'YYYY-MM-DD HH:mm:ss');
     displayFormat.change('DD.MM.YYYY HH:mm');
     assert.match(plugin.formatTimestamp('2026-11-19T09:00:00+01:00'), /^2026-11-19 \d{2}:\d{2}:00$/);
@@ -415,6 +420,9 @@ test('subject picker excludes records and duplicates; Ctrl+Enter saves Markdown 
     const markdown = 'Worked with [[notes/Other]] and [reference](https://example.com).';
     const notes = settings.find(setting => setting.name === 'Notes')!.controls[0];
     assert.ok(notes.inputEl.rows >= 9);
+    const noteSection = settings.find(setting => setting.name === 'Notes')!.settingEl;
+    assert.ok(noteSection.children.some(node => node.children.some(child => child === settings.find(setting => setting.controls.some(control => control.text === 'Preview Markdown'))!.settingEl)));
+    assert.equal(entry.contentEl.children.some(node => /Local time \(/.test(node.text)), false);
     notes.change(markdown);
     await settings.flatMap(setting => setting.controls).find(control => control.text === 'Preview Markdown')!.click();
     let prevented = false;
@@ -480,7 +488,7 @@ test('status suggestions collect distinct configured record values while allowin
     assert.ok((await plugin.snapshot()).records.some(record => record.status === 'custom value'));
 });
 
-test('history separates timer and status actions, records and totals without changing note scope', async () =>
+test('timer and status windows coexist, reopen independently and retain their own history scope', async () =>
 {
     const f = fixture();
     const plugin = f.plugin();
@@ -488,20 +496,63 @@ test('history separates timer and status actions, records and totals without cha
     const subject = await plugin.subject(f.source);
     await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T09:00:00Z', '2026-11-19T10:00:00Z', '', ''));
     await plugin.saveEntry(plugin.newEntry(subject, 'status', '2026-11-19T09:00:00Z', '', 'ongoing', ''));
-    const view = (plugin as unknown as MockPlugin).views.get('track-record-history')!({}) as unknown as { refresh(): Promise<void>; contentEl: import('./obsidian').Element };
+    type View = { refresh(): Promise<void>; getDisplayText(): string; getViewType(): string; contentEl: import('./obsidian').Element };
+    type Leaf = { type: string; view: View; setViewState(state: { type: string }): Promise<void> };
+    const leaves: Leaf[] = [];
+    const factories = (plugin as unknown as MockPlugin).views;
+    Object.assign(f.app.workspace, {
+        getLeavesOfType: (type: string) => leaves.filter(leaf => leaf.type === type),
+        getRightLeaf: (split: boolean) =>
+        {
+            assert.equal(split, true);
+            const leaf = { type: '' } as Leaf;
+            leaf.setViewState = async state =>
+            {
+                leaf.type = state.type;
+                leaf.view = factories.get(state.type)!(leaf) as unknown as View;
+            };
+            leaves.push(leaf);
+            return leaf;
+        },
+        revealLeaf: async () =>
+        {
+        }
+    });
+    await plugin.openHistory('time');
+    await plugin.openHistory('status');
+    await plugin.openHistory('time');
+    assert.equal(leaves.length, 2);
+    const timer = leaves.find(leaf => leaf.type === 'track-record-timer')!.view;
+    const status = leaves.find(leaf => leaf.type === 'track-record-status')!.view;
+    assert.equal(timer.getDisplayText(), 'Track Record Timer');
+    assert.equal(status.getDisplayText(), 'Track Record Status');
     const nodes = (node: import('./obsidian').Element): import('./obsidian').Element[] => [node, ...node.children.flatMap(nodes)];
+    const controlsFor = (view: View) => settings.filter(setting => nodes(view.contentEl).includes(setting.settingEl)).flatMap(setting => setting.controls);
     settings.length = 0;
-    await view.refresh();
-    assert.equal(nodes(view.contentEl).some(node => node.text === 'Status \u00b7 ongoing'), false);
-    assert.equal(settings.flatMap(setting => setting.controls).some(control => control.text === 'Record status'), false);
-    nodes(view.contentEl).find(node => node.tag === 'button' && node.text === 'Status')!.events.get('click')!();
+    await timer.refresh();
+    assert.equal(nodes(timer.contentEl).some(node => node.text === 'Status \u00b7 ongoing'), false);
+    assert.equal(nodes(timer.contentEl).some(node => node.tag === 'button' && node.text === 'Status'), false);
+    assert.equal(controlsFor(timer).some(control => control.text === 'Record status'), false);
+    nodes(timer.contentEl).find(node => node.text === 'All notes')!.events.get('click')!();
+    await timer.refresh();
     settings.length = 0;
-    await view.refresh();
-    assert.ok(nodes(view.contentEl).some(node => node.text === 'Status \u00b7 ongoing'));
-    assert.equal(nodes(view.contentEl).some(node => /Recorded work|Timer \u00b7/.test(node.text)), false);
-    assert.equal(settings.flatMap(setting => setting.controls).some(control => control.text === 'Start timer'), false);
-    assert.ok(settings.flatMap(setting => setting.controls).some(control => control.text === 'Record status'));
+    await status.refresh();
+    assert.ok(nodes(status.contentEl).some(node => node.text === 'Status \u00b7 ongoing'));
+    assert.equal(nodes(status.contentEl).some(node => /Recorded work|Timer \u00b7/.test(node.text)), false);
+    assert.equal(controlsFor(status).some(control => control.text === 'Start timer'), false);
+    assert.ok(controlsFor(status).some(control => control.text === 'Record status'));
+    assert.equal(nodes(timer.contentEl).find(node => node.text === 'All notes')!.attributes.get('aria-pressed'), 'true');
+    assert.equal(nodes(status.contentEl).find(node => node.text === 'This note')!.attributes.get('aria-pressed'), 'true');
     assert.equal(plugin.selected!.path, f.source.path);
+    // A restored pre-split workspace leaf remains reusable as the timer window.
+    const legacy = { type: 'track-record-history' } as Leaf;
+    legacy.view = factories.get(legacy.type)!(legacy) as unknown as View;
+    leaves.splice(0, leaves.length, legacy);
+    await plugin.openHistory('time');
+    assert.equal(leaves.length, 1);
+    assert.equal(legacy.view.getDisplayText(), 'Track Record Timer');
+    assert.equal(legacy.view.getViewType(), 'track-record-history');
+    assert.ok((plugin as unknown as MockPlugin).commands.some(command => command.id === 'open-status-history'));
 });
 
 const PRESENCE = 'track-record:presence:v1';

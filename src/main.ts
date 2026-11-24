@@ -2,7 +2,10 @@ import { AbstractInputSuggest, Component, FuzzySuggestModal, MarkdownRenderer, I
 import { DEFAULTS, Timer as LegacyTimer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, hasRecordTag, historyWarnings, instant, utcTimestamp, localDateTime, localDateTimeToUtc, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, validateUserName, validateRecord, validateSettings, validateSubject, type RecordEntry, type Settings, type Subject, type TimerDraft, type Writer } from './core';
 import { matchesObservation, observationKey, observeTimers, pendingObservations, readPresence, unresolvedObservations, type PresenceReason, type TimerObservation } from './presence';
 
-const VIEW = 'track-record-history';
+const TIMER_VIEW = 'track-record-timer';
+const STATUS_VIEW = 'track-record-status';
+const LEGACY_VIEW = 'track-record-history';
+const VIEW_TYPES = [TIMER_VIEW, STATUS_VIEW, LEGACY_VIEW];
 const LOCAL_KEY = 'track-record:timer:v1';
 const USER_KEY = 'track-record:user-name:v1';
 const PRESENCE_KEY = 'track-record:presence:v1';
@@ -100,7 +103,10 @@ export default class TrackRecord extends Plugin
                 await this.app.vault.create(path, content);
             }
         }, this.session);
-        this.registerView(VIEW, leaf => new HistoryView(leaf, this));
+        this.registerView(TIMER_VIEW, leaf => new HistoryView(leaf, this, 'time', TIMER_VIEW));
+        this.registerView(STATUS_VIEW, leaf => new HistoryView(leaf, this, 'status', STATUS_VIEW));
+        // Keep existing workspace leaves functional without rewriting the user's layout.
+        this.registerView(LEGACY_VIEW, leaf => new HistoryView(leaf, this, 'time', LEGACY_VIEW));
         this.addSettingTab(new RecordSettings(this));
         this.bar = this.addStatusBarItem();
         this.bar.addClass('track-record-bar');
@@ -109,9 +115,13 @@ export default class TrackRecord extends Plugin
             void this.openHistory();
         });
         this.registerInterval(window.setInterval(() => this.updateBar(), 1000));
-        this.addRibbonIcon('timer', 'Track Record: history and timer', () =>
+        this.addRibbonIcon('timer', 'Track Record: open timer view', () =>
         {
             void this.openHistory();
+        });
+        this.addRibbonIcon('list', 'Track Record: open status view', () =>
+        {
+            void this.openHistory('status');
         });
         this.addCommand({
             id: 'start-timer', name: 'Start timer for active note', callback: () =>
@@ -138,9 +148,15 @@ export default class TrackRecord extends Plugin
             }
         });
         this.addCommand({
-            id: 'open-history', name: 'Open note history and timer', callback: () =>
+            id: 'open-history', name: 'Open timer view', callback: () =>
             {
                 void this.openHistory();
+            }
+        });
+        this.addCommand({
+            id: 'open-status-history', name: 'Open status view', callback: () =>
+            {
+                void this.openHistory('status');
             }
         });
         this.addCommand({
@@ -544,17 +560,18 @@ export default class TrackRecord extends Plugin
         return { records, errors };
     }
 
-    async openHistory(): Promise<void>
+    async openHistory(kind: 'time' | 'status' = 'time'): Promise<void>
     {
         const file = this.app.workspace.getActiveFile();
         if (file && this.isSubject(file)) {
             try { this.selected = await this.subject(file); }
             catch (error) { new Notice(`Track Record: ${message(error)}`); }
         }
-        let leaf = this.app.workspace.getLeavesOfType(VIEW)[0];
+        const type = kind === 'time' ? TIMER_VIEW : STATUS_VIEW;
+        let leaf = this.app.workspace.getLeavesOfType(type)[0] ?? (kind === 'time' ? this.app.workspace.getLeavesOfType(LEGACY_VIEW)[0] : undefined);
         if (!leaf) {
-            leaf = this.app.workspace.getRightLeaf(false) ?? this.app.workspace.getLeaf(true);
-            await leaf.setViewState({ type: VIEW, active: true });
+            leaf = this.app.workspace.getRightLeaf(true) ?? this.app.workspace.getLeaf(true);
+            await leaf.setViewState({ type, active: true });
         }
         await this.app.workspace.revealLeaf(leaf);
         this.refreshViews();
@@ -563,7 +580,7 @@ export default class TrackRecord extends Plugin
     refreshViews(): void
     {
         if (!this.alive) return;
-        for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) {
+        for (const leaf of VIEW_TYPES.flatMap(type => this.app.workspace.getLeavesOfType(type))) {
             if (leaf.view instanceof HistoryView) void leaf.view.refresh();
         }
     }
@@ -580,8 +597,8 @@ export default class TrackRecord extends Plugin
             const timer = this.currentTimer();
             const state = timer ? `${this.userName || 'Unassigned'} · ${elapsed(Date.now() - instant(timer.start))}` : 'idle';
             this.bar.setText(`Track Record: ${state}`);
-            this.bar.setAttribute('aria-label', 'Open Track Record history and timer');
-            for (const leaf of this.app.workspace.getLeavesOfType(VIEW)) {
+            this.bar.setAttribute('aria-label', 'Open Track Record Timer');
+            for (const leaf of VIEW_TYPES.flatMap(type => this.app.workspace.getLeavesOfType(type))) {
                 if (leaf.view instanceof HistoryView) leaf.view.updateClock();
             }
         } catch { this.bar.setText('Track Record: recovery needed'); }
@@ -722,7 +739,6 @@ class EntryModal extends Modal
         this.modalEl.addClass('track-record-entry-modal');
         this.titleEl.setText(this.kind === 'time' ? 'Add time record' : 'Record status');
         this.contentEl.addClass('track-record-modal');
-        this.contentEl.createEl('p', { text: `Local time (${Intl.DateTimeFormat().resolvedOptions().timeZone}); saved as UTC.`, cls: 'track-record-subtle' });
         let start = localDateTime(), end = '', status = '', note = '';
         const subjectNotes = new Set([this.subject.path]);
         let pending: RecordEntry | null = null;
@@ -791,8 +807,9 @@ class EntryModal extends Modal
                 note = value;
             });
         });
-        const preview = this.contentEl.createDiv({ cls: 'track-record-notes-preview' });
-        new Setting(this.contentEl).addButton(button => button.setButtonText('Insert note link...').onClick(() =>
+        const preview = notesSetting.settingEl.createDiv({ cls: 'track-record-notes-preview' });
+        const noteActions = notesSetting.settingEl.createDiv({ cls: 'track-record-note-actions' });
+        new Setting(noteActions).addButton(button => button.setButtonText('Insert note link...').onClick(() =>
         {
             new NotePicker(this.plugin, file =>
             {
@@ -917,27 +934,26 @@ class HistoryView extends ItemView
 {
     private generation = 0;
     private allRecords = false;
-    private kind: 'time' | 'status' = 'time';
     private clocks = new Map<string, HTMLElement>();
 
-    constructor(leaf: WorkspaceLeaf, private plugin: TrackRecord)
+    constructor(leaf: WorkspaceLeaf, private plugin: TrackRecord, private readonly kind: 'time' | 'status', private readonly viewType: string)
     {
         super(leaf);
     }
 
     getViewType(): string
     {
-        return VIEW;
+        return this.viewType;
     }
 
     getDisplayText(): string
     {
-        return 'Track Record';
+        return this.kind === 'time' ? 'Track Record Timer' : 'Track Record Status';
     }
 
     getIcon(): string
     {
-        return 'timer';
+        return this.kind === 'time' ? 'timer' : 'list';
     }
 
     async onOpen(): Promise<void>
@@ -970,18 +986,6 @@ class HistoryView extends ItemView
         root.empty();
         this.clocks.clear();
         root.addClass('track-record-view');
-        const modes = root.createDiv({ cls: 'track-record-scope track-record-modes' });
-        modes.setAttribute('role', 'group');
-        modes.setAttribute('aria-label', 'Record type');
-        for (const [label, kind] of [['Timer', 'time'], ['Status', 'status']] as const) {
-            const button = modes.createEl('button', { text: label });
-            button.setAttribute('aria-pressed', String(this.kind === kind));
-            if (this.kind === kind) button.addClass('is-active');
-            button.addEventListener('click', () =>
-            {
-                this.kind = kind; void this.refresh();
-            });
-        }
         const selected = this.plugin.selected;
         const dashboard = root.createDiv({ cls: 'track-record-dashboard' });
         const current = dashboard.createDiv({ cls: 'track-record-current' });
@@ -1101,12 +1105,13 @@ class RecordSettings extends PluginSettingTab
         this.containerEl.createEl('p', { text: 'Timer and status records can share a folder or use separate folders. Tags identify the record type wherever a file is stored.' });
         const draft = { ...this.plugin.settings };
         let userName = this.plugin.userName;
-        const formatPreview = this.containerEl.createDiv({ cls: 'track-record-subtle' });
+        const formatSetting = new Setting(this.containerEl).setName('Date/time display format').setDesc('Local time. Moment format, e.g. YYYY-MM-DD HH:mm:ss or DD.MM.YYYY HH:mm. Used in history, running timers and interruption reminders. Stored timestamps and filenames are unchanged.');
+        const formatPreview = formatSetting.descEl.createDiv({ cls: 'track-record-setting-example' });
         const updateFormatPreview = (): void =>
         {
             formatPreview.setText(`Example: ${this.plugin.formatTimestamp(utcTimestamp(), draft.dateTimeFormat)}`);
         };
-        new Setting(this.containerEl).setName('Date/time display format').setDesc('Local time. Moment format, e.g. YYYY-MM-DD HH:mm:ss or DD.MM.YYYY HH:mm. Used in history, running timers and interruption reminders. Stored timestamps and filenames are unchanged.').addText(text => text.setValue(draft.dateTimeFormat).onChange(value =>
+        formatSetting.addText(text => text.setValue(draft.dateTimeFormat).onChange(value =>
         {
             draft.dateTimeFormat = value;
             updateFormatPreview();
@@ -1126,9 +1131,10 @@ class RecordSettings extends PluginSettingTab
             const folderKey = kind === 'time' ? 'timerFolder' : 'statusFolder';
             const tagKey = kind === 'time' ? 'timeTag' : 'statusTag';
             const filenameKey = kind === 'time' ? 'timerFilename' : 'statusFilename';
-            const preview = this.containerEl.createEl('p', { cls: 'track-record-subtle' });
+            let preview: HTMLElement | null = null;
             const updatePreview = (): void =>
             {
+                if (!preview) return;
                 try {
                     const start = utcTimestamp(new Date(Date.now() - 60000));
                     const example = this.plugin.newEntry({ path: 'Example.md' }, kind, start, utcTimestamp(), 'active', '');
@@ -1153,11 +1159,12 @@ class RecordSettings extends PluginSettingTab
                 draft[tagKey] = value;
                 updatePreview();
             }));
-            new Setting(this.containerEl).setName('Filename format').setDesc('Editable base: {type}, {timestamp}, {date}. A fixed .{hash}.md suffix is always appended. Timestamp is UTC to seconds.').addText(text => text.setValue(draft[filenameKey]).onChange(value =>
+            const filenameSetting = new Setting(this.containerEl).setName('Filename format').setDesc('Editable base: {type}, {timestamp}, {date}. A fixed .{hash}.md suffix is always appended. Timestamp is UTC to seconds.').addText(text => text.setValue(draft[filenameKey]).onChange(value =>
             {
                 draft[filenameKey] = value;
                 updatePreview();
             }));
+            preview = filenameSetting.descEl.createDiv({ cls: 'track-record-setting-example' });
             const labels = kind === 'time'
                 ? { timerSubjectProperty: 'Subject link property', userProperty: 'User property', startProperty: 'Start property', endProperty: 'End property' }
                 : { statusSubjectProperty: 'Subject link property', statusStartProperty: 'Effective-time property', statusProperty: 'Status value property' };

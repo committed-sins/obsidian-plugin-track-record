@@ -243,9 +243,11 @@ export class Setting
     name = '';
     controls: Control[] = [];
     settingEl = new Element();
+    descEl = new Element();
     constructor(_element: unknown)
     {
         if (_element instanceof Element) _element.children.push(this.settingEl);
+        this.settingEl.children.push(this.descEl);
         settings.push(this);
     }
     setName(name: string): this
