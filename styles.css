@@ -30,8 +30,8 @@
 }
 
 .track-record-entry-modal { width: min(760px, calc(100vw - 32px)); }
-.track-record-subjects { display: flex; flex-wrap: wrap; gap: var(--size-4-2); }
-.track-record-subject { display: flex; align-items: center; gap: var(--size-4-2); max-width: 100%; padding: var(--size-4-1) var(--size-4-2); background: var(--background-secondary); border-radius: var(--radius-m); overflow-wrap: anywhere; }
+.track-record-subjects { display: flex; flex-wrap: wrap; gap: var(--size-4-1); width: 100%; flex-basis: 100%; }
+.track-record-subject { display: flex; align-items: center; gap: var(--size-4-1); max-width: 100%; padding: 2px var(--size-4-2); font-size: var(--font-ui-small); background: var(--background-secondary); border-radius: var(--radius-s); overflow-wrap: anywhere; }
 .track-record-subject button { box-shadow: none; background: transparent; padding: 0 var(--size-4-1); }
 .track-record-notes { display: block; }
 .track-record-notes .setting-item-control { margin-top: var(--size-4-2); }
@@ -40,3 +40,8 @@
 .track-record-modes { width: fit-content; margin-bottom: var(--size-4-3); }
 
 .track-record-discard { color: var(--text-error); }
+
+.track-record-subject-section { flex-wrap: wrap; gap: var(--size-4-2); }
+.track-record-subject-section > .setting-item-info { flex: 1 1 15rem; margin-right: 0; }
+.track-record-subject-section > .setting-item-control { flex: 0 0 auto; }
+.track-record-subject button { height: 22px; min-height: 22px; line-height: 1; }

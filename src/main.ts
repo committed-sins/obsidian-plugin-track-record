@@ -726,7 +726,16 @@ class EntryModal extends Modal
         let start = localDateTime(), end = '', status = '', note = '';
         const subjectNotes = new Set([this.subject.path]);
         let pending: RecordEntry | null = null;
-        const subjectsEl = this.contentEl.createDiv({ cls: 'track-record-subjects' });
+        const subjectSetting = new Setting(this.contentEl).setName('Subject notes').setDesc(this.kind === 'status' ? 'This status applies to every selected note.' : 'Counts once globally and in full for each selected note.');
+        subjectSetting.settingEl.addClass('track-record-subject-section');
+        subjectSetting.addButton(button => button.setButtonText('Add note...').onClick(() =>
+        {
+            new NotePicker(this.plugin, file =>
+            {
+                subjectNotes.add(file.path); showSubjects();
+            }, subjectNotes).open();
+        }));
+        const subjectsEl = subjectSetting.settingEl.createDiv({ cls: 'track-record-subjects' });
         const showSubjects = (): void =>
         {
             subjectsEl.empty();
@@ -741,13 +750,17 @@ class EntryModal extends Modal
             }
         };
         showSubjects();
-        new Setting(this.contentEl).setName('Subject notes').setDesc(this.kind === 'status' ? 'This status applies to every selected note.' : 'Counts once globally and in full for each selected note.').addButton(button => button.setButtonText('Add note...').onClick(() =>
+        if (this.kind === 'status') new Setting(this.contentEl).setName('Status').setDesc('Choose a previous value or enter a new one.').addText(text =>
         {
-            new NotePicker(this.plugin, file =>
+            text.setPlaceholder('Choose or enter status...').onChange(value =>
             {
-                subjectNotes.add(file.path); showSubjects();
-            }, subjectNotes).open();
-        }));
+                status = value;
+            });
+            new StatusSuggest(this.plugin.app, text.inputEl, this.statuses, value =>
+            {
+                status = value;
+            });
+        });
         new Setting(this.contentEl).setName(this.kind === 'time' ? 'Start' : 'Effective time').addText(text =>
         {
             text.inputEl.type = 'datetime-local';
@@ -764,17 +777,6 @@ class EntryModal extends Modal
             text.onChange(value =>
             {
                 end = value;
-            });
-        });
-        else new Setting(this.contentEl).setName('Status').setDesc('Choose a previous value or enter a new one.').addText(text =>
-        {
-            text.setPlaceholder('Choose or enter status...').onChange(value =>
-            {
-                status = value;
-            });
-            new StatusSuggest(this.plugin.app, text.inputEl, this.statuses, value =>
-            {
-                status = value;
             });
         });
         const notesSetting = new Setting(this.contentEl).setName('Notes').setDesc(`Markdown, saved under "${this.plugin.settings.notesHeading}".`);

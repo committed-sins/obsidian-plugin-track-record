@@ -245,6 +245,7 @@ export class Setting
     settingEl = new Element();
     constructor(_element: unknown)
     {
+        if (_element instanceof Element) _element.children.push(this.settingEl);
         settings.push(this);
     }
     setName(name: string): this

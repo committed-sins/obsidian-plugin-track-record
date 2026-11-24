@@ -466,6 +466,10 @@ test('status suggestions collect distinct configured record values while allowin
         await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'status', '2026-11-19T08:00:00Z', '', status, ''));
     }
     await plugin.prepareModal('status');
+    const fieldOrder = settings.filter(setting => ['Subject notes', 'Status', 'Effective time', 'Notes'].includes(setting.name)).map(setting => setting.name);
+    assert.deepEqual(fieldOrder, ['Subject notes', 'Status', 'Effective time', 'Notes']);
+    const subjectSection = settings.find(setting => setting.name === 'Subject notes')!.settingEl;
+    assert.ok(subjectSection.children.some(node => node.children.some(chip => chip.children.some(label => label.text === 'notes/Example'))));
     const suggest = suggestions.at(-1)! as unknown as { getSuggestions(query: string): string[]; selectSuggestion(value: string): void };
     assert.deepEqual(suggest.getSuggestions(''), ['active', 'planned']);
     assert.deepEqual(suggest.getSuggestions('ACT'), ['active']);
