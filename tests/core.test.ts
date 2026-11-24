@@ -177,10 +177,14 @@ test('legacy records with embedded mappings remain readable without rewriting', 
 test('Timer and Status use independent folders and filename formats with UTC seconds', () =>
 {
     const settings = { ...DEFAULTS, timerFolder: 'timers', statusFolder: 'statuses' };
-    const time = entry({ settings, start: '2026-11-19T09:00:00.123+01:00' });
-    assert.equal(recordPath(time), 'timers/Timer - 2026-11-19T08-00-00Z.111111.md');
-    assert.equal(recordPath({ ...time, kind: 'status', status: 'active', end: undefined }), 'statuses/Status - 2026-11-19T08-00-00Z.111111.md');
-    assert.equal(recordPath({ ...time, settings: { ...settings, timerFilename: 'Work - {date}' } }), 'timers/Work - 2026-11-19.111111.md');
+    const time = entry({ settings, start: '2026-11-19T00:05:07.123+01:00' });
+    assert.equal(recordPath(time), 'timers/Timer - 2026-11-18T230507Z.111111.md');
+    assert.equal(recordPath({ ...time, kind: 'status', status: 'active', end: undefined }), 'statuses/Status - 2026-11-18T230507Z.111111.md');
+    assert.equal(recordPath({ ...time, settings: { ...settings, timerFilename: 'Work - {date}' } }), 'timers/Work - 2026-11-18.111111.md');
+    const previousPath = 'timers/Timer - 2026-11-18T23-05-07Z.111111.md';
+    const previousRecord = parseRecord(render(time), previousPath, parse, [settings]);
+    assert.equal(recordPath(previousRecord), previousPath);
+    assert.equal(previousRecord.start, time.start);
     for (const timerFilename of ['../{hash}', '{unknown} - {hash}', '{hash}.md', 'Timer: {hash}']) assert.throws(() => validateSettings({ ...settings, timerFilename }));
 });
 

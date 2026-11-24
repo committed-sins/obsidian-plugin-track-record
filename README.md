@@ -50,11 +50,11 @@ Timer and Status settings use separate **Save in folder** (vault-relative filesy
 The editable default filename base for both kinds is `{type} - {timestamp}`. The plugin always appends `.{hash}.md`:
 
 ```text
-Timer - 2026-11-20T08-00-00Z.a1b2c3.md
-Status - 2026-11-20T08-00-00Z.d4e5f6.md
+Timer - 2026-11-20T080000Z.a1b2c3.md
+Status - 2026-11-20T080000Z.d4e5f6.md
 ```
 
-`{timestamp}` is UTC to seconds, without milliseconds; colons become hyphens for Windows-safe names. `{date}` is its UTC calendar date. `{type}` is Timer or Status. The fixed suffix is six random hexadecimal characters, not a content hash. It is never expanded into a UUID. A filename collision is reported without overwriting or adding identity properties. Retry as a new record or resolve the note collision. Previous trailing `{hash}` patterns are interpreted as the new fixed suffix. New timestamp properties use UTC and retain millisecond precision for timer Start/Stop; manual inputs use seconds.
+`{timestamp}` uses UTC to seconds in the Windows-safe format `YYYY-MM-DDThhmmssZ`. `{date}` is its UTC calendar date. `{type}` is Timer or Status. The fixed suffix is six random hexadecimal characters, not a content hash. It is never expanded into a UUID. A filename collision is reported without overwriting or adding identity properties. Retry as a new record or resolve the note collision. Previous trailing `{hash}` patterns are interpreted as the new fixed suffix. New timestamp properties use UTC and retain millisecond precision for timer Start/Stop; manual inputs use seconds.
 
 Running timers are ordinary open Markdown records. Local reminders are observations only, not timer authority: path, start, user and quit/last-active time stay in this installation's vault-local storage. A 30-second heartbeat is the crash/mobile fallback. Plugin unload/reload is labelled last-active, not app-closing. Reloading or switching devices does not invent an end time. Idle/sleep time is not automatically subtracted; the interval ends only when explicitly stopped/switched or edited. The previous preview's local draft, if present, is preserved and requires explicit **Recover legacy timer** or discard before new timers can start. An interrupted legacy save retries its exact original bytes and path.
 

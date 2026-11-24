@@ -182,7 +182,7 @@ export class RecordSettingsTab extends PluginSettingTab
                 },
                 {
                     name: 'Filename format',
-                    desc: 'Available tokens are {type}, {timestamp} and {date}. The .{hash}.md suffix is appended automatically. Timestamps use UTC to seconds.',
+                    desc: 'Available tokens are {type}, {timestamp} and {date}. The timestamp uses UTC in YYYY-MM-DDThhmmssZ format. The .{hash}.md suffix is appended automatically.',
                     render: setting =>
                     {
                         setting.addText(text => text.setValue(draft[filenameKey]).onChange(change(filenameKey)));

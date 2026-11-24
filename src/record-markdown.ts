@@ -10,7 +10,7 @@ export function recordPath(entry: RecordEntry): string
         validateSubject({ path: entry.path });
         return entry.path;
     }
-    const timestamp = new Date(instant(entry.start)).toISOString().replace(/\.\d{3}Z$/, 'Z').replace(/:/g, '-');
+    const timestamp = new Date(instant(entry.start)).toISOString().replace(/\.\d{3}Z$/, 'Z').replaceAll(':', '');
     const hash = entry.id.replace(/-/g, '').slice(0, 6);
     if (!/^[0-9a-f]{6}$/i.test(hash)) throw Error('A new note needs a six-character random filename suffix.');
     const tokens: Record<string, string> = { type: entry.kind === 'time' ? 'Timer' : 'Status', timestamp, date: timestamp.slice(0, 10) };
