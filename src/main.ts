@@ -1,7 +1,8 @@
-import { Notice, Plugin, moment, type TFile } from 'obsidian';
+import { Notice, Plugin, type TFile } from 'obsidian';
 import { DEFAULTS, validateSettings, type Settings } from './settings';
 import { ownedOpenTimers, validateRecord, validateUserName, type RecordEntry, type Subject } from './records';
 import { formatElapsed, instant, utcTimestamp } from './timestamps';
+import { formatLocalTimestamp } from './display-timestamp';
 import { LegacyTimer } from './legacy-timer';
 import { matchesObservation, observationKey, observeTimers, pendingObservations, readPresence, unresolvedObservations, type PresenceReason, type TimerObservation } from './presence';
 import { errorMessage, objectProperties } from './plugin-helpers';
@@ -426,7 +427,7 @@ export default class TrackRecordPlugin extends Plugin
 
     formatTimestamp(value: string, format = this.settings.dateTimeFormat): string
     {
-        return moment(instant(value)).format(format);
+        return formatLocalTimestamp(value, format);
     }
 
     updateBar(): void
