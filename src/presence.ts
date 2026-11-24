@@ -1,4 +1,5 @@
-import { instant, ownedOpenTimers, validateSubject, validateUserName, type RecordEntry } from './core';
+import { instant } from './timestamps';
+import { ownedOpenTimers, validateSubject, validateUserName, type RecordEntry } from './records';
 
 export type PresenceReason = 'active' | 'quit' | 'unload';
 

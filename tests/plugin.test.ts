@@ -95,7 +95,7 @@ test('load and explicit time/status writes never edit the source note', async ()
     const plugin = f.plugin();
     await plugin.onload();
     assert.equal(f.texts.size, 1);
-    const subject = await plugin.subject(f.source);
+    const subject = await plugin.records.subject(f.source);
     await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T09:00:00+01:00', '2026-11-19T10:00:00+01:00', '', 'worked'));
     await plugin.saveEntry(plugin.newEntry(subject, 'status', '2026-11-19T11:00:00+01:00', '', 'ongoing', ''));
     assert.equal(f.texts.get(f.source.path), f.content);
@@ -112,8 +112,8 @@ test('timer resolves a note renamed while active and preserves the source conten
     const f = fixture();
     const plugin = f.plugin();
     await plugin.onload();
-    await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'status', '2026-11-19T08:00:00+01:00', '', 'active', ''));
-    await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'time', '2026-11-19T09:00:00+01:00', '', '', '', true));
+    await plugin.saveEntry(plugin.newEntry(await plugin.records.subject(f.source), 'status', '2026-11-19T08:00:00+01:00', '', 'active', ''));
+    await plugin.saveEntry(plugin.newEntry(await plugin.records.subject(f.source), 'time', '2026-11-19T09:00:00+01:00', '', '', '', true));
     const oldPath = f.source.path;
     f.source.path = 'notes/Renamed.md';
     f.files.delete(oldPath);
@@ -138,7 +138,7 @@ test('starting a timer closes the previous local timer at exactly the new start 
     const f = fixture();
     const plugin = f.plugin();
     await plugin.onload();
-    const previous = await plugin.subject(f.source);
+    const previous = await plugin.records.subject(f.source);
     await plugin.saveEntry(plugin.newEntry(previous, 'time', '2026-11-19T08:00:00+01:00', '', '', '', true));
     const next = new TFile('notes/Other.md');
     f.files.set(next.path, next);
@@ -157,7 +157,7 @@ test('failed automatic stop prevents starting the replacement timer', async () =
     const f = fixture();
     const plugin = f.plugin();
     await plugin.onload();
-    const subject = await plugin.subject(f.source);
+    const subject = await plugin.records.subject(f.source);
     await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T08:00:00+01:00', '', '', '', true));
     await plugin.snapshot();
     const id = plugin.currentTimer()!.id;
@@ -173,7 +173,7 @@ test('settings retain older property profiles outside Markdown records', async (
     const f = fixture();
     const plugin = f.plugin();
     await plugin.onload();
-    await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'time', '2026-11-19T09:00:00+01:00', '2026-11-19T10:00:00+01:00', '', ''));
+    await plugin.saveEntry(plugin.newEntry(await plugin.records.subject(f.source), 'time', '2026-11-19T09:00:00+01:00', '2026-11-19T10:00:00+01:00', '', ''));
     await plugin.saveSettings({ ...plugin.settings, timerFolder: 'new/timers', timeTag: 'work/timer', startProperty: 'began' });
     const snapshot = await plugin.snapshot();
     assert.equal(snapshot.records.length, 1);
@@ -288,7 +288,7 @@ test('duplicate note IDs and malformed record files are visible, never repaired 
     const duplicate = new TFile('duplicate.md');
     f.files.set(duplicate.path, duplicate);
     f.texts.set(duplicate.path, f.content);
-    await assert.rejects(plugin.subject(f.source), /Duplicate subject ID/);
+    await assert.rejects(plugin.records.subject(f.source), /Duplicate subject ID/);
     const broken = new TFile('records/track-record/broken.md');
     f.files.set(broken.path, broken);
     f.texts.set(broken.path, '---\ntrack_record:\n  version: 999\n---\n');
@@ -327,7 +327,7 @@ test('running timers survive reload; an optional current user stays local', asyn
     assert.equal(reloaded.userName, 'Desktop');
     assert.equal(reloaded.currentTimer()!.id, active.id);
     const when = new Date(Date.parse(active.start) + 1000).toISOString();
-    await reloaded.closeTimers([reloaded.currentTimer()!], when);
+    await reloaded.records.closeTimers([reloaded.currentTimer()!], when);
     await reloaded.snapshot();
     assert.equal(reloaded.currentTimer(), null);
 });
@@ -338,7 +338,7 @@ test('Start closes the same user across devices and leaves other users open', as
     const plugin = f.plugin();
     await plugin.onload();
     plugin.saveUserName('Desktop');
-    const subject = await plugin.subject(f.source);
+    const subject = await plugin.records.subject(f.source);
     for (const user of ['Desktop', 'Desktop', 'Phone']) {
         await plugin.saveEntry({ ...plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true), user });
     }
@@ -356,7 +356,7 @@ test('no configured user closes only unassigned timers, even with a legacy reset
     const plugin = f.plugin();
     await plugin.onload();
     assert.equal(plugin.userName, '');
-    const subject = await plugin.subject(f.source);
+    const subject = await plugin.records.subject(f.source);
     await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true));
     await plugin.saveEntry({ ...plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true), user: 'Alice' });
     (plugin.settings as unknown as { resetAllTimersActive: boolean }).resetAllTimersActive = true;
@@ -373,7 +373,7 @@ test('Start preflights every selected timer before closing any of them', async (
     const plugin = f.plugin();
     await plugin.onload();
     for (const start of ['2026-11-19T08:00:00Z', '2099-01-01T08:00:00Z']) {
-        await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'time', start, '', '', '', true));
+        await plugin.saveEntry(plugin.newEntry(await plugin.records.subject(f.source), 'time', start, '', '', '', true));
     }
     await assert.rejects(plugin.startTimer(), /End must be after start/);
     const records = (await plugin.snapshot()).records;
@@ -388,7 +388,7 @@ test('unconfigured-user Stop never closes an assigned user timer or adopts an ol
     const plugin = f.plugin();
     await plugin.onload();
     assert.equal(plugin.userName, '');
-    const subject = await plugin.subject(f.source);
+    const subject = await plugin.records.subject(f.source);
     await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true));
     await plugin.saveEntry({ ...plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true), user: 'Alice' });
     await plugin.stopTimer();
@@ -407,7 +407,7 @@ test('subject picker excludes records and duplicates; Ctrl+Enter saves Markdown 
     const other = new TFile('notes/Other.md');
     f.files.set(other.path, other);
     f.texts.set(other.path, 'Other note');
-    await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'status', '2026-11-19T08:00:00Z', '', 'active', ''));
+    await plugin.saveEntry(plugin.newEntry(await plugin.records.subject(f.source), 'status', '2026-11-19T08:00:00Z', '', 'active', ''));
     await plugin.prepareModal('time');
     const entry = modals.at(-1)!;
     await settings.flatMap(setting => setting.controls).find(control => control.text === 'Add note...')!.click();
@@ -471,7 +471,7 @@ test('status suggestions collect distinct configured record values while allowin
     await plugin.onload();
     await plugin.saveSettings({ ...plugin.settings, statusProperty: 'record.status' });
     for (const status of ['active', 'planned', 'active']) {
-        await plugin.saveEntry(plugin.newEntry(await plugin.subject(f.source), 'status', '2026-11-19T08:00:00Z', '', status, ''));
+        await plugin.saveEntry(plugin.newEntry(await plugin.records.subject(f.source), 'status', '2026-11-19T08:00:00Z', '', status, ''));
     }
     await plugin.prepareModal('status');
     const fieldOrder = settings.filter(setting => ['Subject notes', 'Status', 'Effective time', 'Notes'].includes(setting.name)).map(setting => setting.name);
@@ -493,7 +493,7 @@ test('timer and status windows coexist, reopen independently and retain their ow
     const f = fixture();
     const plugin = f.plugin();
     await plugin.onload();
-    const subject = await plugin.subject(f.source);
+    const subject = await plugin.records.subject(f.source);
     await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T09:00:00Z', '2026-11-19T10:00:00Z', '', ''));
     await plugin.saveEntry(plugin.newEntry(subject, 'status', '2026-11-19T09:00:00Z', '', 'ongoing', ''));
     type View = { refresh(): Promise<void>; getDisplayText(): string; getViewType(): string; contentEl: import('./obsidian').Element };
@@ -565,7 +565,7 @@ async function interruptedFixture(reason: 'active' | 'quit' | 'unload' = 'quit')
     await first.onload();
     await first.presenceReady;
     first.saveUserName('Alice');
-    await first.saveEntry(first.newEntry(await first.subject(f.source), 'time', '2026-11-19T09:00:00Z', '', '', '', true));
+    await first.saveEntry(first.newEntry(await first.records.subject(f.source), 'time', '2026-11-19T09:00:00Z', '', '', '', true));
     await first.snapshot();
     if (reason === 'quit') f.workspaceEvents.get('quit')!({});
     else first.checkpointPresence(reason);
@@ -598,7 +598,7 @@ test('ending at the recorded quit time changes only the observed timer, not a ne
     settings.length = 0;
     const f = await interruptedFixture();
     const observed = f.plugin.currentTimer()!.path!;
-    const subject = await f.plugin.subject(f.source);
+    const subject = await f.plugin.records.subject(f.source);
     const another = f.plugin.newEntry(subject, 'time', '2026-11-19T10:00:00Z', '', '', '', true);
     await f.plugin.saveEntry(another);
     await f.plugin.saveEntry({ ...f.plugin.newEntry(subject, 'time', '2026-11-19T11:00:00Z', '', '', '', true), user: 'Bob' });
@@ -632,7 +632,7 @@ test('a synced end or replaced start prevents a stale reminder from modifying th
         const f = await interruptedFixture();
         const timer = f.plugin.currentTimer()!;
         const path = timer.path!;
-        if (change === 'end') await f.plugin.closeTimers([timer], '2026-11-19T10:00:00Z');
+        if (change === 'end') await f.plugin.records.closeTimers([timer], '2026-11-19T10:00:00Z');
         else f.texts.set(path, f.texts.get(path)!.replace('2026-11-19T09:00:00Z', '2026-11-19T10:00:00Z'));
         const changed = f.texts.get(path);
         await f.plugin.resolveInterruption(f.observation, f.observation.at);
@@ -643,7 +643,7 @@ test('a synced end or replaced start prevents a stale reminder from modifying th
 test('already synced closed timers and another configured user do not prompt on reopen', async () =>
 {
     const f = await interruptedFixture();
-    await f.plugin.closeTimers([f.plugin.currentTimer()!], '2026-11-19T10:00:00Z');
+    await f.plugin.records.closeTimers([f.plugin.currentTimer()!], '2026-11-19T10:00:00Z');
     const count = modals.length;
     const closed = new TrackRecord(f.app, {} as PluginManifest);
     await closed.onload(); await closed.presenceReady;

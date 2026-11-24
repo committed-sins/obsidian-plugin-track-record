@@ -2,7 +2,12 @@ import { matchesObservation, pendingObservations, readPresence } from '../src/pr
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parse, stringify } from 'yaml';
-import { DEFAULTS, Timer, chooseRecordPath, closeTimerText, createOnce, duration, frontmatter, getProperty, historyWarnings, instant, isOpenEnd, localTimestamp, utcTimestamp, localDateTime, localDateTimeToUtc, ownedOpenTimers, parseRecord, recordPath, recordSubjects, relatesTo, sameSubject, setProperty, timerDraft, validateUserName, validateRecord, validateSettings, type RecordEntry, type TimerDraft } from '../src/core';
+import { DEFAULTS, getProperty, setProperty, validateSettings } from '../src/settings';
+import { LegacyTimer as Timer, timerDraft, type TimerDraft } from '../src/legacy-timer';
+import { chooseRecordPath, createOnce } from '../src/record-writer';
+import { closeTimerText, frontmatter, parseRecord, recordPath } from '../src/record-markdown';
+import { duration, historyWarnings, isOpenEnd, ownedOpenTimers, recordSubjects, relatesTo, sameSubject, validateUserName, validateRecord, type RecordEntry } from '../src/records';
+import { instant, localTimestamp, utcTimestamp, localDateTime, localDateTimeToUtc } from '../src/timestamps';
 
 const A = '11111111-0000-4000-8000-000000000001';
 const B = '22222222-0000-4000-8000-000000000002';

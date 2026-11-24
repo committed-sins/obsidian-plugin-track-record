@@ -46,13 +46,20 @@ status: ongoing
 
 ## Entry dialogs and sections
 
-Subject selections use a FuzzySuggestModal and a deduplicated set of paths; save revalidates targets. AbstractInputSuggest provides editable status suggestions from parsed status records across current and retained mappings. Ctrl/Cmd+Enter invokes the same guarded save action as the button, including frozen retries. Notes are literal Markdown under a configurable level-two heading. A link picker uses Obsidian's link-format preference relative to the destination folder; MarkdownRenderer supplies an explicit preview with a modal-owned Component lifecycle. Existing records and frozen legacy pending-save bytes are not rewritten. Timer and Status view modes share note/scope selection but separate actions, records and work totals.
+Subject selections use a FuzzySuggestModal and a deduplicated set of paths; save revalidates targets. AbstractInputSuggest provides editable status suggestions from parsed status records across current and retained mappings. Ctrl/Cmd+Enter invokes the same guarded save action as the button, including frozen retries. Notes are literal Markdown under a configurable level-two heading. A link picker uses Obsidian's link-format preference relative to the destination folder; MarkdownRenderer supplies an explicit preview with a modal-owned Component lifecycle. Existing records and frozen legacy pending-save bytes are not rewritten. Timer and Status use separate views with independent history filters and a shared current note.
 
 ## Local interruption reminders
 
 `track-record:presence:v1` is vault-local installation storage, separate from shared settings. Current observations contain only a record path, start, exact owner, timestamp and boundary reason. They never establish whether an interval is open: Markdown is authoritative. Workspace quit records the beginning of a normal shutdown; plugin unload is explicitly different. A 30-second heartbeat is best effort for crashes/mobile kills. Observation snapshots update after record scans and explicit operations.
 
 On startup, current observations join any deferred reminders, keeping the earliest unresolved boundary per path/start/user. Match fresh open records for the current user only. The modal offers continue, the observed end or a custom local end converted to UTC. The guarded Vault.process path revalidates the current record before an end is written. Newly created timers and other users are excluded. A synced end/replacement clears a stale reminder; missing or invalid files retain it for late synchronization. Dismissing preserves the decision across restarts; a review command reopens it. No background record writes occur. Corrupt local reminders are preserved and disabled with a notice rather than overwritten.
+
+## Source layout
+
+- `main.ts` connects Obsidian commands and lifecycle events to the tracking and reminder workflows.
+- `record-vault.ts` handles vault reads, writes, subject resolution and record scans. Normal saves and legacy recovery share the same writer.
+- `records.ts`, `settings.ts` and `timestamps.ts` define and validate record data. `record-markdown.ts` handles filenames and YAML, with guarded writes in `record-writer.ts`.
+- The history view, settings tab and dialogs live in separate modules. `legacy-timer.ts` retains recovery for drafts from older versions.
 
 ## Compatibility and indexing
 

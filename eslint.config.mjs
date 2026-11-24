@@ -6,5 +6,5 @@ export default defineConfig([
     ...obsidianmd.configs.recommended,
     { languageOptions: { parserOptions: { projectService: true } } },
     // These validators intentionally detect control characters in user input.
-    { files: ['src/core.ts'], rules: { 'no-control-regex': 'off' } }
+    { files: ['src/settings.ts', 'src/records.ts'], rules: { 'no-control-regex': 'off' } }
 ]);
