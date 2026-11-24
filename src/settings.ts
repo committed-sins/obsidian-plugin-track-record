@@ -1,3 +1,5 @@
+import { hasAsciiControl } from './text-validation';
+
 export interface Settings
 {
     timerFolder: string;
@@ -36,12 +38,12 @@ export function validateSettings(input: unknown): Settings
         if (typeof raw !== 'string') throw Error(`Invalid setting: ${key}.`);
         result[key] = raw.trim();
     }
-    if (!result.notesHeading || result.notesHeading.length > 120 || /[\r\n#\x00-\x1f]/.test(result.notesHeading)) throw Error('Use a non-empty notes heading without # or line breaks (up to 120 characters).');
-    if (!result.dateTimeFormat || result.dateTimeFormat.length > 120 || /[\r\n\x00-\x1f]/.test(result.dateTimeFormat)) throw Error('Use a date/time display format of 1 to 120 characters without line breaks.');
+    if (!result.notesHeading || result.notesHeading.length > 120 || result.notesHeading.includes('#') || hasAsciiControl(result.notesHeading)) throw Error('Use a non-empty notes heading without # or line breaks (up to 120 characters).');
+    if (!result.dateTimeFormat || result.dateTimeFormat.length > 120 || hasAsciiControl(result.dateTimeFormat)) throw Error('Use a date/time display format of 1 to 120 characters without line breaks.');
     result.timerFilename = filenameBase(result.timerFilename);
     result.statusFilename = filenameBase(result.statusFilename);
     for (const folder of [result.timerFolder, result.statusFolder]) {
-        if (!folder || folder.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || /[\\:*?"<>|[\]#^\x00-\x1f]/.test(folder)) throw Error('Use a vault-relative folder without hidden folders, traversal or special characters.');
+        if (!folder || folder.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || /[\\:*?"<>|[\]#^]/.test(folder) || hasAsciiControl(folder)) throw Error('Use a vault-relative folder without hidden folders, traversal or special characters.');
     }
     result.timeTag = result.timeTag.replace(/^#/, '');
     result.statusTag = result.statusTag.replace(/^#/, '');
@@ -51,7 +53,7 @@ export function validateSettings(input: unknown): Settings
     if (result.timeTag.toLowerCase() === result.statusTag.toLowerCase()) throw Error('Timer and status tags must differ (tags are case-insensitive).');
     for (const pattern of [result.timerFilename, result.statusFilename]) {
         if (!pattern || /[{}]/.test(pattern.replace(/\{(type|timestamp|date)\}/g, ''))) throw Error('Use filename tokens {type}, {timestamp}, {date}. The .{hash}.md suffix is appended automatically.');
-        if (/[\\/:*?"<>|[\]#^\x00-\x1f]/.test(pattern) || pattern.startsWith('.') || /[. ]$/.test(pattern) || /\.md$/i.test(pattern)) throw Error('Enter a filename pattern without a folder or .md extension.');
+        if (/[\\/:*?"<>|[\]#^]/.test(pattern) || hasAsciiControl(pattern) || pattern.startsWith('.') || /[. ]$/.test(pattern) || /\.md$/i.test(pattern)) throw Error('Enter a filename pattern without a folder or .md extension.');
         if (pattern.length > 140) throw Error('Filename pattern is too long.');
     }
     for (const properties of [[result.timerSubjectProperty, result.startProperty, result.endProperty, result.userProperty], [result.statusSubjectProperty, result.statusStartProperty, result.statusProperty]]) {

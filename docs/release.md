@@ -1,40 +1,42 @@
-# Release checklist - 0.1.6
+# Release checklist
 
-First public release 0.1.6 approved by the user on 2026-11-21 after Test-vault evaluation. The preparation command itself creates no tag, release or Community submission.
+## Prepare and test
 
-## Prepared
+1. Keep the version in `manifest.json`, `package.json` and `package-lock.json` aligned with the minimum Obsidian version recorded in `versions.json`.
+2. Run `npm ci` and `npm run release:prepare`. The local package in `dist/release/<version>/` includes the runtime files, license notices, release notes and SHA-256 checksums.
+3. Deploy the candidate only to the Test vault and follow [the testing checklist](testing.md). Obtain Test-vault acceptance before publishing.
+4. Push the signed, verified candidate commit. Use the Community directory's **Review branch** action to request a review of its commit SHA.
 
-- Public repository, MIT license, README, manifest and versions map.
-- Runtime uses public Obsidian/Web APIs, without Node/Electron imports. Manifest minimum is 1.11.4. This is API compatibility, not a claim that every older desktop/mobile version was tested.
-- TypeScript, Allman style, official Obsidian ESLint recommended checks, browser build and 66 automated tests.
-- One advisory lint warning remains: imperative staged settings do not participate in Obsidian 1.13+ declarative settings search. The setting controls remain available normally. The control-character-regex rule is scoped off in the input validator because detecting those characters is its purpose.
-- Pinned ESLint 9 matches the official plugin's dependency peers. The official plugin currently brings a vulnerable older minimatch through eslint-plugin-n; a narrow development-only override pins patched 11.0.9. Run npm audit after dependency updates. No lint tooling enters the runtime bundle.
-- Bundled yaml ISC copyright/license in main.js, with standalone LICENSE and THIRD_PARTY_NOTICES.md.
-- Read-only GitHub Actions checks on Windows and Linux with pinned action commits. It performs no release or vault deployment.
-- Local preparation: `npm ci`, then `npm run release:prepare`.
+## Build the approved release
 
-## Acceptance status
-
-- The user accepted the current Test-vault version as the first release on 2026-11-21.
-- Initial evaluation is accepted; this does not claim every shutdown, mobile or sync scenario has been measured. The full manual matrix remains in testing.md.
-- Mobile interruption/synchronization and Bases Excerpts section extraction remain pending integration checks.
-- The user performs the Community directory submission after publication.
-
-## Prepared files
-
-`dist/release/0.1.6/` contains main.js, manifest.json, styles.css, LICENSE, THIRD_PARTY_NOTICES.md, SHA256SUMS and RELEASE_NOTES.md. The three runtime files match the Test deployment. SHA256SUMS covers the runtime and license files. Re-run preparation after any code change.
-
-## Publish only after approval
-
-1. After acceptance, promote candidate wording in README and release notes to the final release wording. Ensure the approved commit is signed, verified, pushed and has a successful CI check. Regenerate/verify the prepared files from that commit.
-2. Create a signed tag `0.1.6` for that exact commit, verify its signature using the configured trust file, and push only that tag. Do not prefix the tag with v.
-3. Use gh to create the release with the prepared runtime files and notices. Example, to be executed only after approval:
+Update the default branch to the approved release commit, ensure CI passes, then create, verify and push a signed tag matching the manifest version, without a `v` prefix. Dispatch the workflow for the exact tag and wait for it to pass on Windows and Linux and to attest the release assets.
 
 ```powershell
-gh release create 0.1.6 dist/release/0.1.6/main.js dist/release/0.1.6/manifest.json dist/release/0.1.6/styles.css dist/release/0.1.6/LICENSE dist/release/0.1.6/THIRD_PARTY_NOTICES.md dist/release/0.1.6/SHA256SUMS --verify-tag --title "Track Record 0.1.6" --notes-file dist/release/0.1.6/RELEASE_NOTES.md
+gh workflow run ci.yml --ref $version
+gh run watch $runId --exit-status
+gh run download $runId --name track-record-release --dir dist/attested
 ```
 
-4. Verify uploaded assets against SHA256SUMS and test a download/install in Test.
-5. The user submits the public repository in the Obsidian Community directory. A matching GitHub release with binary assets must exist first; the directory reads the default-branch manifest. Do not use the former obsidian-releases pull-request workflow.
+Here `$version` is the signed tag, `$runId` is its successful workflow run and `$commit` is the full release commit SHA. Download into an empty directory. Verify each downloaded file before publishing.
 
-Sources checked on 2026-11-21: [submission guide](https://docs.obsidian.md/Plugins/Releasing/Submit%20your%20plugin), [submission requirements](https://docs.obsidian.md/community-directory/submission-requirements-for-plugins), [developer policies](https://docs.obsidian.md/community-directory/developer-policies).
+```powershell
+$repo = 'committed-sins/obsidian-plugin-track-record'
+foreach ($asset in 'main.js', 'manifest.json', 'styles.css') {
+    gh attestation verify "dist/attested/$asset" --repo $repo --source-ref "refs/tags/$version" --source-digest $commit --signer-workflow "$repo/.github/workflows/ci.yml"
+    if ($LASTEXITCODE -ne 0) { throw "Attestation verification failed for $asset" }
+}
+```
+
+## Publish and submit
+
+Publish the verified CI files as individual assets and supply the release notes as GitHub release text. The source repository carries the licenses and notices. The bundled YAML license is also included in `main.js`.
+
+```powershell
+gh release create $version dist/attested/main.js dist/attested/manifest.json dist/attested/styles.css --verify-tag --title "Track Record $version" --notes-file "dist/release/$version/RELEASE_NOTES.md"
+```
+
+Download the published files, verify the same attestations and check the install in Test. The user submits or re-reviews the release in the Community directory.
+
+- [Obsidian submission requirements](https://docs.obsidian.md/community-directory/submission-requirements-for-plugins)
+- [Obsidian Community directory review](https://docs.obsidian.md/community-directory/manage-entry)
+- [GitHub artifact attestations](https://docs.github.com/en/actions/how-tos/secure-your-work/use-artifact-attestations/use-artifact-attestations)

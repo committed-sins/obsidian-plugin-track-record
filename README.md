@@ -64,6 +64,8 @@ Devices create independent records. Overlaps are flagged rather than merged; tot
 
 Subject relationships come from wikilinks. Native link updates remain Obsidian's responsibility. Duplicate source IDs known to the metadata cache block recording. Retained profiles in plugin settings must be kept/synchronized if older records use customized tags or property names. The current-user setting stays local; enter the same name on your other devices. Vault file events refresh the timer list after a short debounce; clock ticks do not rescan files. Large-vault and live mobile behavior remain unverified.
 
+Track Record lists Markdown files for the note picker and checks cached metadata across the vault to find tagged records outside their configured folders and detect duplicate subject IDs. It reads record contents only for candidate files identified by their tags or folders, including retained profiles.
+
 ## Build and test deployment
 
 Requires Node.js 22+:
@@ -114,7 +116,7 @@ A normal quit event records when Obsidian begins closing. That callback is not g
 
 ## Release preparation
 
-Run `npm ci` and `npm run release:prepare`. This checks source, build and tests, then prepares runtime files, licenses, release notes and SHA-256 checksums in `dist/release/0.1.6/`. It creates no tag or GitHub release. See the [release checklist](docs/release.md). Test-vault acceptance is required before publishing; the user submits the approved release to the Community directory.
+Run `npm ci` and `npm run release:prepare` to validate and package a candidate locally. GitHub Actions can build and attest the three Obsidian release assets for an exact Git ref. Test the candidate in the Test vault before publishing. See the [release checklist](docs/release.md).
 
 ## License
 

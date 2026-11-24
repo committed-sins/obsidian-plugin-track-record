@@ -1,5 +1,6 @@
 import { validateSettings, type Settings } from './settings';
 import { instant } from './timestamps';
+import { hasAsciiControl, hasLineBreakOrNul } from './text-validation';
 
 export const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -36,7 +37,7 @@ export function validateUserName(value: unknown): string
 {
     if (typeof value !== 'string') throw Error('User name must be a string.');
     const name = value.trim();
-    if (name.length > 80 || /[\r\n\x00-\x1f]/.test(name)) throw Error('Enter an optional user name of at most 80 characters without control characters.');
+    if (name.length > 80 || hasAsciiControl(name)) throw Error('Enter an optional user name of at most 80 characters without control characters.');
     return name;
 }
 
@@ -60,7 +61,7 @@ export function validateSubject(input: unknown): Subject
 {
     if (!input || typeof input !== 'object') throw Error('Missing subject note.');
     const subject = input as Subject;
-    if (typeof subject.path !== 'string' || !subject.path.endsWith('.md') || subject.path.startsWith('/') || subject.path.split('/').some(p => !p || p === '.' || p === '..') || /[\\[\]#|^\r\n\x00]/.test(subject.path)) throw Error('This note path cannot be represented by a safe wikilink.');
+    if (typeof subject.path !== 'string' || !subject.path.endsWith('.md') || subject.path.startsWith('/') || subject.path.split('/').some(p => !p || p === '.' || p === '..') || /[\\[\]#|^]/.test(subject.path) || hasLineBreakOrNul(subject.path)) throw Error('This note path cannot be represented by a safe wikilink.');
     if (subject.id !== undefined && (typeof subject.id !== 'string' || !subject.id.trim())) throw Error('Invalid subject ID.');
     return { path: subject.path, ...(subject.id ? { id: subject.id } : {}) };
 }
@@ -80,7 +81,7 @@ export function validateRecord(input: RecordEntry): RecordEntry
         if (input.user !== undefined) validateUserName(input.user);
         if (input.status !== undefined) throw Error('A time record cannot contain a status.');
     } else if (input.kind === 'status') {
-        if (typeof input.status !== 'string' || !input.status.trim() || input.status.length > 200 || /[\r\n\x00]/.test(input.status)) throw Error('Enter a non-empty status of at most 200 characters.');
+        if (typeof input.status !== 'string' || !input.status.trim() || input.status.length > 200 || hasLineBreakOrNul(input.status)) throw Error('Enter a non-empty status of at most 200 characters.');
         if (input.end !== undefined) throw Error('A status event has no end time.');
         if (input.user !== undefined) throw Error('Status records have no user property.');
     } else throw Error('Unknown record kind.');

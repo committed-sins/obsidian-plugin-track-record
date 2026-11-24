@@ -1,8 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { App, PluginManifest, TFile as ObsidianFile } from 'obsidian';
+import type { App, PluginManifest, Setting as ObsidianSetting, TFile as ObsidianFile } from 'obsidian';
 import TrackRecord from '../src/main';
-import { TFile, TFolder, modals, settings, notices, suggestions, Plugin as MockPlugin } from './obsidian';
+import type { RecordSettingsTab } from '../src/record-settings-tab';
+import { Setting, TFile, TFolder, modals, settings, notices, suggestions, Plugin as MockPlugin } from './obsidian';
 import { parse } from 'yaml';
 
 function fixture()
@@ -223,6 +224,31 @@ test('settings distinguish Timer and Status folders from tag inputs', async t =>
     assert.equal(plugin.settings.statusTag, 'record/state');
     assert.equal(plugin.settings.dateTimeFormat, 'DD.MM.YYYY HH:mm');
     assert.match(plugin.formatTimestamp('2026-11-19T09:00:00+01:00'), /^19\.11\.2026 \d{2}:\d{2}$/);
+});
+
+test('declarative settings expose searchable groups and save a shared draft', async () =>
+{
+    settings.length = 0;
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    const tab = (plugin as unknown as MockPlugin).settingTabs[0] as RecordSettingsTab;
+    const definitions = tab.getSettingDefinitions();
+    const groups = definitions.filter(definition => 'type' in definition);
+    assert.deepEqual(groups.map(group => group.heading), ['Current user', 'Timer', 'Status']);
+    assert.ok(groups.every(group => group.items.every(row => row.name && row.searchable !== false)));
+    for (const row of definitions.flatMap(definition => 'type' in definition ? definition.items : [definition])) {
+        row.render(new Setting(tab.containerEl).setName(row.name) as unknown as ObsidianSetting);
+    }
+    settings.find(setting => setting.name === 'User name')!.controls[0].change('Alice');
+    settings.find(setting => setting.name === 'Save in folder')!.controls[0].change('records/timers');
+    const preview = settings.find(setting => setting.name === 'Filename format')!.descEl.children[0];
+    assert.match(preview.text, /^Example: records\/timers\//);
+    assert.equal(plugin.settings.timerFolder, 'records/track-record');
+    assert.equal(plugin.userName, '');
+    await settings.flatMap(setting => setting.controls).find(control => control.text === 'Save settings')!.click();
+    assert.equal(plugin.settings.timerFolder, 'records/timers');
+    assert.equal(plugin.userName, 'Alice');
 });
 
 test('sidebar exposes current-note timer controls and a ticking timer without losing note scope', async () =>

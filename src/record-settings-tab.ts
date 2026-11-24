@@ -1,10 +1,19 @@
-import { AbstractInputSuggest, PluginSettingTab, Setting, TFolder, type App } from 'obsidian';
+import { AbstractInputSuggest, PluginSettingTab, Setting, type App, type SettingDefinitionRender, type TFolder } from 'obsidian';
 import { validateSettings, type Settings } from './settings';
 import { validateUserName } from './records';
 import { utcTimestamp } from './timestamps';
 import { recordPath } from './record-markdown';
 import { errorMessage } from './plugin-helpers';
 import type TrackRecordPlugin from './main';
+
+type SettingsRow = Omit<SettingDefinitionRender, 'render'> & { render: (setting: Setting) => void };
+
+interface SettingsGroup
+{
+    type: 'group';
+    heading: string;
+    items: SettingsRow[];
+}
 
 class FolderSuggest extends AbstractInputSuggest<TFolder>
 {
@@ -15,7 +24,8 @@ class FolderSuggest extends AbstractInputSuggest<TFolder>
 
     protected getSuggestions(query: string): TFolder[]
     {
-        return this.vaultApp.vault.getAllLoadedFiles().filter((file): file is TFolder => file instanceof TFolder && !!file.path && file.path.toLowerCase().includes(query.toLowerCase())).sort((a, b) => a.path.localeCompare(b.path));
+        const search = query.toLowerCase();
+        return this.vaultApp.vault.getAllFolders(false).filter(folder => folder.path.toLowerCase().includes(search)).sort((a, b) => a.path.localeCompare(b.path));
     }
 
     renderSuggestion(folder: TFolder, el: HTMLElement): void
@@ -41,91 +51,156 @@ export class RecordSettingsTab extends PluginSettingTab
     display(): void
     {
         this.containerEl.empty();
-        this.containerEl.createEl('p', { text: 'Timer and status records can share a folder or use separate folders. Tags identify the record type wherever a file is stored.' });
+        for (const definition of this.getSettingDefinitions()) {
+            const rows = 'type' in definition ? definition.items : [definition];
+            if ('type' in definition) new Setting(this.containerEl).setName(definition.heading).setHeading();
+            for (const row of rows) {
+                const setting = new Setting(this.containerEl).setName(row.name).setDesc(row.desc ?? '');
+                row.render(setting);
+            }
+        }
+    }
+
+    getSettingDefinitions(): (SettingsRow | SettingsGroup)[]
+    {
         const draft = { ...this.plugin.settings };
         let userName = this.plugin.userName;
-        const formatSetting = new Setting(this.containerEl).setName('Date/time display format').setDesc('Local time. Moment format, e.g. YYYY-MM-DD HH:mm:ss or DD.MM.YYYY HH:mm. Used in history, running timers and interruption reminders. Stored timestamps and filenames are unchanged.');
-        const formatPreview = formatSetting.descEl.createDiv({ cls: 'track-record-setting-example' });
-        const updateFormatPreview = (): void =>
-        {
-            formatPreview.setText(`Example: ${this.plugin.formatTimestamp(utcTimestamp(), draft.dateTimeFormat)}`);
-        };
-        formatSetting.addText(text => text.setValue(draft.dateTimeFormat).onChange(value =>
-        {
-            draft.dateTimeFormat = value;
-            updateFormatPreview();
-        }));
-        updateFormatPreview();
-        new Setting(this.containerEl).setName('Notes heading').setDesc('Heading text for the Markdown notes section (level 2). Applies to new records; existing records stay unchanged.').addText(text => text.setValue(draft.notesHeading).onChange(value =>
-        {
-            draft.notesHeading = value;
-        }));
-        new Setting(this.containerEl).setName('Current user').setHeading();
-        new Setting(this.containerEl).setName('User name').setDesc('Optional local setting. Use the same name on your devices. Empty closes only timers without a user; a configured name closes only that user’s timers. This is an organizational label, not access control.').addText(text => text.setValue(userName).onChange(value =>
-        {
-            userName = value;
-        }));
-        for (const kind of ['time', 'status'] as const) {
-            new Setting(this.containerEl).setName(kind === 'time' ? 'Timer' : 'Status').setHeading();
-            const folderKey = kind === 'time' ? 'timerFolder' : 'statusFolder';
-            const tagKey = kind === 'time' ? 'timeTag' : 'statusTag';
-            const filenameKey = kind === 'time' ? 'timerFilename' : 'statusFilename';
-            let preview: HTMLElement | null = null;
-            const updatePreview = (): void =>
+        return [
             {
-                if (!preview) return;
-                try {
-                    const start = utcTimestamp(new Date(Date.now() - 60000));
-                    const example = this.plugin.newEntry({ path: 'Example.md' }, kind, start, utcTimestamp(), 'active', '');
-                    preview.setText(`Example: ${recordPath({ ...example, settings: validateSettings(draft) })}`);
-                } catch (error) { preview.setText(errorMessage(error)); }
-            };
-            new Setting(this.containerEl).setName('Save in folder').setDesc('Folder path relative to the vault root. Choose an existing folder or type a new path. This is not a tag.').addText(text =>
-            {
-                text.setPlaceholder('records/track-record').setValue(draft[folderKey]).onChange(value =>
+                name: 'Date/time display format',
+                desc: 'Local time in history, running timers and interruption reminders. Use Moment tokens, for example YYYY-MM-DD HH:mm:ss or DD.MM.YYYY HH:mm.',
+                render: setting =>
                 {
-                    draft[folderKey] = value;
+                    const preview = setting.descEl.createDiv({ cls: 'track-record-setting-example' });
+                    const updatePreview = (): void =>
+                    {
+                        preview.setText(`Example: ${this.plugin.formatTimestamp(utcTimestamp(), draft.dateTimeFormat)}`);
+                    };
+                    setting.addText(text => text.setValue(draft.dateTimeFormat).onChange(value =>
+                    {
+                        draft.dateTimeFormat = value;
+                        updatePreview();
+                    }));
                     updatePreview();
-                });
-                new FolderSuggest(this.plugin.app, text.inputEl, value =>
-                {
-                    draft[folderKey] = value;
-                    updatePreview();
-                });
-            });
-            new Setting(this.containerEl).setName('Identify by tag').setDesc('Obsidian tag in the tags property. A slash creates a nested tag, not a folder. A leading # is optional here.').addText(text => text.setPlaceholder(kind === 'time' ? '#record/time' : '#record/status').setValue('#' + draft[tagKey]).onChange(value =>
+                }
+            },
             {
-                draft[tagKey] = value;
-                updatePreview();
-            }));
-            const filenameSetting = new Setting(this.containerEl).setName('Filename format').setDesc('Editable base: {type}, {timestamp}, {date}. A fixed .{hash}.md suffix is always appended. Timestamp is UTC to seconds.').addText(text => text.setValue(draft[filenameKey]).onChange(value =>
-            {
-                draft[filenameKey] = value;
-                updatePreview();
-            }));
-            preview = filenameSetting.descEl.createDiv({ cls: 'track-record-setting-example' });
-            const labels = kind === 'time'
-                ? { timerSubjectProperty: 'Subject link property', userProperty: 'User property', startProperty: 'Start property', endProperty: 'End property' }
-                : { statusSubjectProperty: 'Subject link property', statusStartProperty: 'Effective-time property', statusProperty: 'Status value property' };
-            for (const key of Object.keys(labels) as (keyof Settings)[]) {
-                new Setting(this.containerEl).setName(labels[key as keyof typeof labels]!).setDesc('Dot notation creates nested YAML, e.g. record.start. Flat names work too. Subject suggestions: contexts or projects; links are stored as a list.').addText(text => text.setValue(draft[key]).onChange(value =>
+                name: 'Notes heading',
+                desc: 'Level 2 Markdown heading for the notes section in new records.',
+                render: setting =>
                 {
-                    draft[key] = value;
-                    updatePreview();
-                }));
+                    setting.addText(text => text.setValue(draft.notesHeading).onChange(value =>
+                    {
+                        draft.notesHeading = value;
+                    }));
+                }
+            },
+            {
+                type: 'group', heading: 'Current user', items: [{
+                    name: 'User name',
+                    desc: 'Optional local setting. Use the same name on your devices. Timer actions match the configured user, or timers without a user when left blank.',
+                    render: setting =>
+                    {
+                        setting.addText(text => text.setValue(userName).onChange(value =>
+                        {
+                            userName = value;
+                        }));
+                    }
+                }]
+            },
+            this.recordSettings('time', draft),
+            this.recordSettings('status', draft),
+            {
+                name: '',
+                searchable: false,
+                render: setting =>
+                {
+                    const feedback = setting.descEl.createDiv();
+                    setting.addButton(button => button.setButtonText('Save settings').setCta().onClick(async () =>
+                    {
+                        try {
+                            if (this.plugin.busy) throw Error('Wait for the current write.');
+                            validateUserName(userName);
+                            await this.plugin.saveSettings(draft);
+                            this.plugin.saveUserName(userName);
+                            feedback.setText('Settings saved.');
+                        } catch (error) { feedback.setText(errorMessage(error)); }
+                    }));
+                }
             }
-            updatePreview();
-        }
-        const feedback = this.containerEl.createEl('p');
-        new Setting(this.containerEl).addButton(button => button.setButtonText('Save settings').setCta().onClick(async () =>
+        ];
+    }
+
+    private recordSettings(kind: 'time' | 'status', draft: Settings): SettingsGroup
+    {
+        const isTimer = kind === 'time';
+        const folderKey = isTimer ? 'timerFolder' : 'statusFolder';
+        const tagKey = isTimer ? 'timeTag' : 'statusTag';
+        const filenameKey = isTimer ? 'timerFilename' : 'statusFilename';
+        const properties: [keyof Settings, string][] = isTimer
+            ? [['timerSubjectProperty', 'Subject link property'], ['userProperty', 'User property'], ['startProperty', 'Start property'], ['endProperty', 'End property']]
+            : [['statusSubjectProperty', 'Subject link property'], ['statusStartProperty', 'Effective-time property'], ['statusProperty', 'Status value property']];
+        let preview: HTMLElement | undefined;
+        const updatePreview = (): void =>
         {
+            if (!preview) return;
             try {
-                if (this.plugin.busy) throw Error('Wait for the current write.');
-                validateUserName(userName);
-                await this.plugin.saveSettings(draft);
-                this.plugin.saveUserName(userName);
-                feedback.setText('Saved. User name stays local; records were not migrated.');
-            } catch (error) { feedback.setText(errorMessage(error)); }
-        }));
+                const start = utcTimestamp(new Date(Date.now() - 60000));
+                const example = this.plugin.newEntry({ path: 'Example.md' }, kind, start, utcTimestamp(), 'active', '');
+                preview.setText(`Example: ${recordPath({ ...example, settings: validateSettings(draft) })}`);
+            } catch (error) { preview.setText(errorMessage(error)); }
+        };
+        const change = (key: keyof Settings) => (value: string): void =>
+        {
+            draft[key] = value;
+            updatePreview();
+        };
+        return {
+            type: 'group',
+            heading: isTimer ? 'Timer' : 'Status',
+            items: [
+                {
+                    name: 'Save in folder',
+                    desc: 'Folder path relative to the vault root. Choose an existing folder or type a new path. Timer and status records can share a folder.',
+                    render: setting =>
+                    {
+                        setting.addText(text =>
+                        {
+                            const setFolder = change(folderKey);
+                            text.setPlaceholder('records/track-record').setValue(draft[folderKey]).onChange(setFolder);
+                            new FolderSuggest(this.plugin.app, text.inputEl, setFolder);
+                        });
+                    }
+                },
+                {
+                    name: 'Identify by tag',
+                    desc: 'Obsidian tag in the tags property. A slash creates a nested tag. A leading # is optional.',
+                    render: setting =>
+                    {
+                        setting.addText(text => text.setPlaceholder(isTimer ? '#record/time' : '#record/status').setValue('#' + draft[tagKey]).onChange(change(tagKey)));
+                    }
+                },
+                {
+                    name: 'Filename format',
+                    desc: 'Available tokens are {type}, {timestamp} and {date}. The .{hash}.md suffix is appended automatically. Timestamps use UTC to seconds.',
+                    render: setting =>
+                    {
+                        setting.addText(text => text.setValue(draft[filenameKey]).onChange(change(filenameKey)));
+                        preview = setting.descEl.createDiv({ cls: 'track-record-setting-example' });
+                        updatePreview();
+                    }
+                },
+                ...properties.map(([key, name]): SettingsRow => ({
+                    name,
+                    desc: key === 'timerSubjectProperty' || key === 'statusSubjectProperty'
+                        ? 'Property for the list of linked notes, for example contexts or projects. Use dot notation for nesting.'
+                        : 'Use a flat property name or dot notation for nesting, for example record.start.',
+                    render: setting =>
+                    {
+                        setting.addText(text => text.setValue(draft[key]).onChange(change(key)));
+                    }
+                }))
+            ]
+        };
     }
 }
