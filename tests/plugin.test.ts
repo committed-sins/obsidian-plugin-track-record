@@ -12,6 +12,33 @@ function fixture()
     const source = new TFile('notes/Example.md');
     const files = new Map<string, TFile | TFolder>([[source.path, source], ['notes', new TFolder('notes')]]);
     const texts = new Map([[source.path, content]]);
+    const listedFolders: string[] = [];
+    const reads: string[] = [];
+    function folderAt(path: string): TFolder | null
+    {
+        const prefix = path === '/' ? '' : path + '/';
+        if (path !== '/' && !(files.get(path) instanceof TFolder) && ![...files.keys()].some(key => key.startsWith(prefix))) return null;
+        const folder = new TFolder(path);
+        Object.defineProperty(folder, 'children', {
+            get: () =>
+            {
+                listedFolders.push(path);
+                const children = new Map<string, TFile | TFolder>();
+                for (const [key, file] of files) {
+                    if (!key.startsWith(prefix) || key === path) continue;
+                    const name = key.slice(prefix.length);
+                    const slash = name.indexOf('/');
+                    if (slash === -1 && file instanceof TFile) children.set(key, file);
+                    else {
+                        const childPath = slash === -1 ? key : prefix + name.slice(0, slash);
+                        if (!children.has(childPath)) children.set(childPath, folderAt(childPath)!);
+                    }
+                }
+                return [...children.values()];
+            }
+        });
+        return folder;
+    }
     const state = new Map<string, unknown>();
     let failCreate = false;
     let failProcess = false;
@@ -22,8 +49,14 @@ function fixture()
         saveLocalStorage: (key: string, value: unknown) => state.set(key, structuredClone(value)),
         vault: {
             getAbstractFileByPath: (path: string) => files.get(path) ?? null,
-            getMarkdownFiles: () => [...files.values()].filter(file => file instanceof TFile),
-            read: async (file: TFile) => texts.get(file.path)!,
+            getFileByPath: (path: string) => files.get(path) instanceof TFile ? files.get(path) : null,
+            getFolderByPath: folderAt,
+            getRoot: () => folderAt('/')!,
+            read: async (file: TFile) =>
+            {
+                reads.push(file.path);
+                return texts.get(file.path)!;
+            },
             process: async (file: TFile, update: (text: string) => string) =>
             {
                 if (failProcess) throw Error('disk unavailable');
@@ -70,7 +103,7 @@ function fixture()
         }
     };
     return {
-        app: app as unknown as App, source: source as unknown as ObsidianFile, texts, content, files, events, workspaceEvents, state,
+        app: app as unknown as App, source: source as unknown as ObsidianFile, texts, content, files, events, workspaceEvents, state, listedFolders, reads,
         plugin: () => new TrackRecord(app as unknown as App, {} as PluginManifest),
         setFailure: (value: boolean) =>
         {
@@ -226,6 +259,75 @@ test('settings distinguish Timer and Status folders from tag inputs', async t =>
     assert.match(plugin.formatTimestamp('2026-11-19T09:00:00+01:00'), /^19\.11\.2026 \d{2}:\d{2}$/);
 });
 
+test('record and note lookups traverse only their configured subtrees', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    await plugin.saveSettings({ ...plugin.settings, notesFolder: 'notes', recordSearchFolder: 'records' });
+    const nested = new TFile('notes/project/Other.md');
+    const outside = new TFile('notes-archive/Copy.md');
+    f.files.set(nested.path, nested);
+    f.files.set(outside.path, outside);
+    f.texts.set(outside.path, f.content);
+    const subject = await plugin.records.subject(f.source);
+    await assert.rejects(plugin.records.resolveSubject({ path: outside.path }), /configured Notes folder/);
+    f.listedFolders.length = 0;
+    assert.deepEqual(plugin.records.noteFiles(true).map(file => file.path).sort(), [f.source.path, nested.path].sort());
+    assert.deepEqual(f.listedFolders, ['notes', 'notes/project']);
+
+    const path = await plugin.saveEntry(plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true));
+    const elsewhere = new TFile('archive/previous.md');
+    f.files.set(elsewhere.path, elsewhere);
+    f.texts.set(elsewhere.path, f.texts.get(path)!);
+    f.listedFolders.length = 0;
+    f.reads.length = 0;
+    const snapshot = await plugin.snapshot();
+    assert.deepEqual(snapshot.records.map(record => record.path), [path]);
+    assert.deepEqual(f.listedFolders, ['records', 'records/track-record']);
+    assert.deepEqual(f.reads, [path]);
+});
+
+test('search-folder reduction refuses to hide an open timer', async () =>
+{
+    const f = fixture();
+    const plugin = f.plugin();
+    await plugin.onload();
+    await plugin.saveSettings({ ...plugin.settings, recordSearchFolder: 'archive' });
+    const subject = await plugin.records.subject(f.source);
+    const record = plugin.newEntry(subject, 'time', '2026-11-19T08:00:00Z', '', '', '', true);
+    record.path = 'archive/Previous.md';
+    const path = await plugin.saveEntry(record);
+    await assert.rejects(plugin.saveSettings({ ...plugin.settings, recordSearchFolder: '' }), /outside the new records folders/);
+    assert.equal(plugin.settings.recordSearchFolder, 'archive');
+    await plugin.records.closeTimers((await plugin.snapshot()).records, '2026-11-19T09:00:00Z');
+    await plugin.saveSettings({ ...plugin.settings, recordSearchFolder: '' });
+    assert.deepEqual((await plugin.snapshot()).records, []);
+    assert.ok(f.texts.has(path));
+});
+
+test('an observed timer outside the new search scope blocks starting a second timer', async () =>
+{
+    const f = fixture();
+    const old = f.plugin();
+    await old.onload();
+    const subject = await old.records.subject(f.source);
+    const start = '2026-11-19T08:00:00Z';
+    const record = old.newEntry(subject, 'time', start, '', '', '', true);
+    record.path = 'archive/Previous.md';
+    const path = await old.saveEntry(record);
+    f.state.set(PRESENCE, { version: 1, current: [], pending: [{ path, start, user: '', at: '2026-11-19T09:00:00Z', reason: 'quit' }] });
+    const plugin = f.plugin();
+    await plugin.onload();
+    await plugin.presenceReady;
+    assert.match((await plugin.snapshot()).errors.join('\n'), /Previously open timer outside the records folders/);
+    await assert.rejects(plugin.startTimer(subject), /Review invalid records/);
+    assert.equal(f.texts.size, 2);
+    await plugin.saveSettings({ ...plugin.settings, recordSearchFolder: 'archive' });
+    assert.deepEqual((await plugin.snapshot()).errors, []);
+    assert.equal(plugin.currentTimer()?.path, path);
+});
+
 test('declarative settings expose searchable groups and save a shared draft', async () =>
 {
     settings.length = 0;
@@ -235,7 +337,7 @@ test('declarative settings expose searchable groups and save a shared draft', as
     const tab = (plugin as unknown as MockPlugin).settingTabs[0] as RecordSettingsTab;
     const definitions = tab.getSettingDefinitions();
     const groups = definitions.filter(definition => 'type' in definition);
-    assert.deepEqual(groups.map(group => group.heading), ['Current user', 'Timer', 'Status']);
+    assert.deepEqual(groups.map(group => group.heading), ['Search folders', 'Current user', 'Timer', 'Status']);
     assert.ok(groups.every(group => group.items.every(row => row.name && row.searchable !== false)));
     for (const row of definitions.flatMap(definition => 'type' in definition ? definition.items : [definition])) {
         row.render(new Setting(tab.containerEl).setName(row.name) as unknown as ObsidianSetting);

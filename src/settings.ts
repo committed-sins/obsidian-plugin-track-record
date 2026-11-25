@@ -2,6 +2,8 @@ import { hasAsciiControl } from './text-validation';
 
 export interface Settings
 {
+    notesFolder: string;
+    recordSearchFolder: string;
     timerFolder: string;
     statusFolder: string;
     timerFilename: string;
@@ -20,6 +22,7 @@ export interface Settings
 }
 
 export const DEFAULTS: Settings = {
+    notesFolder: '', recordSearchFolder: '',
     timerFolder: 'records/track-record', statusFolder: 'records/track-record',
     timerFilename: '{type} - {timestamp}', statusFilename: '{type} - {timestamp}',
     timeTag: 'record/time', statusTag: 'record/status',
@@ -42,9 +45,9 @@ export function validateSettings(input: unknown): Settings
     if (!result.dateTimeFormat || result.dateTimeFormat.length > 120 || hasAsciiControl(result.dateTimeFormat)) throw Error('Use a date/time display format of 1 to 120 characters without line breaks.');
     result.timerFilename = filenameBase(result.timerFilename);
     result.statusFilename = filenameBase(result.statusFilename);
-    for (const folder of [result.timerFolder, result.statusFolder]) {
-        if (!folder || folder.split('/').some(p => !p || p === '.' || p === '..' || p.startsWith('.')) || /[\\:*?"<>|[\]#^]/.test(folder) || hasAsciiControl(folder)) throw Error('Use a vault-relative folder without hidden folders, traversal or special characters.');
-    }
+    for (const folder of [result.timerFolder, result.statusFolder]) validateFolder(folder);
+    if (result.notesFolder && result.notesFolder !== '/') validateFolder(result.notesFolder);
+    if (result.recordSearchFolder) validateFolder(result.recordSearchFolder);
     result.timeTag = result.timeTag.replace(/^#/, '');
     result.statusTag = result.statusTag.replace(/^#/, '');
     for (const tag of [result.timeTag, result.statusTag]) {
@@ -63,6 +66,11 @@ export function validateSettings(input: unknown): Settings
         }
     }
     return result;
+}
+
+function validateFolder(folder: string): void
+{
+    if (!folder || folder.split('/').some(part => !part || part.startsWith('.')) || /[\\:*?"<>|[\]#^]/.test(folder) || hasAsciiControl(folder)) throw Error('Use a vault-relative folder without hidden folders, traversal or special characters.');
 }
 
 export function filenameBase(value: string): string

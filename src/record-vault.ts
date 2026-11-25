@@ -58,8 +58,36 @@ export class RecordVault implements Writer
 
     isSubject(file: TFile, profiles = this.readProfiles()): boolean
     {
+        if (file.extension !== 'md' || !withinFolder(file.path, profiles[0].notesFolder)) return false;
         const data = this.app.metadataCache.getFileCache(file)?.frontmatter;
-        return file.extension === 'md' && !data?.track_record && !hasRecordTag(data, profiles);
+        return !data?.track_record && !hasRecordTag(data, profiles);
+    }
+
+    noteFiles(subjectsOnly: boolean, profiles = this.readProfiles()): TFile[]
+    {
+        const files = this.markdownFiles([profiles[0].notesFolder]);
+        return subjectsOnly ? files.filter(file => this.isSubject(file, profiles)) : files;
+    }
+
+    private markdownFiles(paths: Iterable<string>): TFile[]
+    {
+        const files: TFile[] = [];
+        const visited = new Set<string>();
+        const folders: TFolder[] = [];
+        for (const path of paths) {
+            const folder = !path || path === '/' ? this.app.vault.getRoot() : this.app.vault.getFolderByPath(path);
+            if (folder) folders.push(folder);
+        }
+        while (folders.length) {
+            const folder = folders.pop()!;
+            if (visited.has(folder.path)) continue;
+            visited.add(folder.path);
+            for (const file of folder.children) {
+                if (file instanceof TFolder) folders.push(file);
+                else if (file instanceof TFile && file.extension === 'md') files.push(file);
+            }
+        }
+        return files;
     }
 
     cachedSubject(file: TFile): Subject
@@ -70,7 +98,7 @@ export class RecordVault implements Writer
 
     async subject(file: TFile): Promise<Subject>
     {
-        if (!this.isSubject(file)) throw Error('Open an ordinary Markdown note outside the record folder.');
+        if (!this.isSubject(file)) throw Error('Choose a Markdown note from the configured Notes folder.');
         const data = await this.app.vault.read(file);
         const fm = matchFrontmatter(data);
         const dataProperties = fm ? objectProperties(parseYaml(fm[1]) as unknown) : null;
@@ -78,7 +106,7 @@ export class RecordVault implements Writer
         const id = dataProperties?.id;
         if (id !== undefined && (typeof id !== 'string' || !id.trim())) throw Error('Subject id must be a non-empty string.');
         if (id) {
-            const duplicate = this.app.vault.getMarkdownFiles().some(candidate => candidate.path !== file.path && this.app.metadataCache.getFileCache(candidate)?.frontmatter?.id === id);
+            const duplicate = this.noteFiles(false).some(candidate => candidate.path !== file.path && this.cachedSubject(candidate).id === id);
             if (duplicate) throw Error('Duplicate subject ID; resolve it before recording.');
         }
         return validateSubject({ path: file.path, ...(id ? { id } : {}) });
@@ -87,7 +115,7 @@ export class RecordVault implements Writer
     async resolveSubject(subject: Subject): Promise<Subject>
     {
         if (subject.id) {
-            const candidates = this.app.vault.getMarkdownFiles().filter(file => this.app.metadataCache.getFileCache(file)?.frontmatter?.id === subject.id);
+            const candidates = this.noteFiles(false).filter(file => this.cachedSubject(file).id === subject.id);
             if (candidates.length > 1) throw Error('Duplicate subject ID; timer retained.');
             if (candidates.length === 1) {
                 const resolved = await this.subject(candidates[0]);
@@ -133,24 +161,9 @@ export class RecordVault implements Writer
     async scan(): Promise<RecordSnapshot>
     {
         const profiles = this.readProfiles();
-        const folders = [...new Set(profiles.flatMap(profile => [profile.timerFolder, profile.statusFolder]))];
         const records: RecordEntry[] = [], errors: string[] = [];
-        // Tags identify records independently of their folder; legacy metadata is read-only compatibility.
-        const allFiles = this.app.vault.getMarkdownFiles();
-        const subjectsById = new Map<string, TFile[]>();
-        for (const file of allFiles.filter(candidate => this.isSubject(candidate, profiles))) {
-            const id = this.cachedSubject(file).id;
-            if (!id) continue;
-            const matching = subjectsById.get(id) ?? [];
-            matching.push(file);
-            subjectsById.set(id, matching);
-        }
-        const files = allFiles.filter(file =>
-        {
-            const data = this.app.metadataCache.getFileCache(file)?.frontmatter;
-            return data?.track_record || hasRecordTag(data, profiles) || folders.some(folder => file.path.startsWith(folder + '/'));
-        });
-        for (const file of files) {
+        let subjectsById: Map<string, TFile[]> | undefined;
+        for (const file of this.markdownFiles(recordFolders(profiles))) {
             try {
                 const text = await this.app.vault.read(file);
                 const fm = matchFrontmatter(text);
@@ -160,14 +173,40 @@ export class RecordVault implements Writer
                 const record = parseRecordProperties(data, text.slice(fm[0].length), file.path, profiles);
                 record.linkPaths = recordSubjects(record).map(target => target.path);
                 for (const target of recordSubjects(record)) {
-                    const matching = target.id ? subjectsById.get(target.id) ?? [] : [];
+                    if (target.id) subjectsById ??= this.indexSubjectIds(profiles);
+                    const matching = target.id ? subjectsById?.get(target.id) ?? [] : [];
                     if (matching.length > 1) errors.push(`${file.path}: duplicate subject ID; attribution is ambiguous.`);
                     const destination = matching.length === 1 ? matching[0] : this.app.metadataCache.getFirstLinkpathDest(target.path, file.path);
-                    if (destination) target.path = destination.path;
+                    if (destination && withinFolder(destination.path, profiles[0].notesFolder)) target.path = destination.path;
                 }
                 records.push(record);
             } catch (error) { errors.push(`${file.path}: ${errorMessage(error)}`); }
         }
         return { records, errors };
     }
+
+    private indexSubjectIds(profiles: Settings[]): Map<string, TFile[]>
+    {
+        const index = new Map<string, TFile[]>();
+        for (const file of this.noteFiles(true, profiles)) {
+            const id = this.cachedSubject(file).id;
+            if (!id) continue;
+            const files = index.get(id) ?? [];
+            files.push(file);
+            index.set(id, files);
+        }
+        return index;
+    }
+}
+
+export function recordFolders(profiles: Settings[]): Set<string>
+{
+    const folders = new Set(profiles.flatMap(profile => [profile.timerFolder, profile.statusFolder]));
+    if (profiles[0].recordSearchFolder) folders.add(profiles[0].recordSearchFolder);
+    return folders;
+}
+
+function withinFolder(path: string, folder: string): boolean
+{
+    return !folder || folder === '/' || path.startsWith(folder + '/');
 }

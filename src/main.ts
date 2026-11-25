@@ -6,7 +6,7 @@ import { formatLocalTimestamp } from './display-timestamp';
 import { LegacyTimer } from './legacy-timer';
 import { matchesObservation, observationKey, observeTimers, pendingObservations, readPresence, unresolvedObservations, type PresenceReason, type TimerObservation } from './presence';
 import { errorMessage, objectProperties } from './plugin-helpers';
-import { RecordVault, type RecordSnapshot } from './record-vault';
+import { RecordVault, recordFolders, type RecordSnapshot } from './record-vault';
 import { RecordEntryDialog } from './record-entry-dialog';
 import { TimerInterruptionDialog } from './interruption-dialog';
 import { LegacyTimerRecoveryDialog } from './legacy-recovery-dialog';
@@ -393,6 +393,13 @@ export default class TrackRecordPlugin extends Plugin
         const generation = ++this.snapshotGeneration;
         const { records, errors } = await this.records.scan();
         if (generation === this.snapshotGeneration) {
+            const folders = [...recordFolders(this.profiles())];
+            for (const observation of this.pendingInterruptions) {
+                if (observation.user !== this.userName
+                    || folders.some(folder => observation.path.startsWith(folder + '/'))
+                    || !this.app.vault.getFileByPath(observation.path)) continue;
+                errors.push(`Previously open timer outside the records folders: ${observation.path}. Include its folder in Track Record settings to review it.`);
+            }
             this.activeTimers = records.filter(record => record.kind === 'time' && !record.end);
             this.reconcileInterruptions(records, errors);
             this.checkpointPresence('active');
@@ -448,7 +455,15 @@ export default class TrackRecordPlugin extends Plugin
     {
         const next = validateSettings(settings);
         const profiles = [this.settings, ...this.readProfiles];
-        const retained = [...new Map(profiles.map(profile => [JSON.stringify(profile), profile])).values()].filter(profile => JSON.stringify(profile) !== JSON.stringify(next));
+        const profileKey = (profile: Settings): string => JSON.stringify({ ...profile, notesFolder: '', recordSearchFolder: '' });
+        const retained = [...new Map(profiles.map(profile => [profileKey(profile), profile])).values()].filter(profile => profileKey(profile) !== profileKey(next));
+        const folders = [...recordFolders([next, ...retained, ...LEGACY_PROFILES])];
+        const oldSearch = this.settings.recordSearchFolder;
+        if (this.ready && oldSearch && !folders.some(folder => oldSearch === folder || oldSearch.startsWith(folder + '/'))) {
+            const { records, errors } = await this.records.scan();
+            const hidesOpenTimer = records.some(record => record.kind === 'time' && !record.end && !folders.some(folder => record.path?.startsWith(folder + '/')));
+            if (errors.length || hidesOpenTimer) throw Error('Review invalid records and stop any timers that would be outside the new records folders before reducing the search scope.');
+        }
         await this.saveData({ ...next, readProfiles: retained });
         this.readProfiles = retained;
         this.settings = next;

@@ -1,4 +1,4 @@
-import { AbstractInputSuggest, PluginSettingTab, Setting, type App, type SettingDefinitionRender, type TFolder } from 'obsidian';
+import { AbstractInputSuggest, PluginSettingTab, Setting, TFolder, type App, type SettingDefinitionRender } from 'obsidian';
 import { validateSettings, type Settings } from './settings';
 import { validateUserName } from './records';
 import { utcTimestamp } from './timestamps';
@@ -24,8 +24,11 @@ class FolderSuggest extends AbstractInputSuggest<TFolder>
 
     protected getSuggestions(query: string): TFolder[]
     {
-        const search = query.toLowerCase();
-        return this.vaultApp.vault.getAllFolders(false).filter(folder => folder.path.toLowerCase().includes(search)).sort((a, b) => a.path.localeCompare(b.path));
+        const slash = query.lastIndexOf('/');
+        const parentPath = query.slice(0, Math.max(0, slash));
+        const search = query.slice(slash + 1).toLowerCase();
+        const parent = parentPath ? this.vaultApp.vault.getFolderByPath(parentPath) : this.vaultApp.vault.getRoot();
+        return (parent?.children ?? []).filter((file): file is TFolder => file instanceof TFolder && file.path.slice(file.path.lastIndexOf('/') + 1).toLowerCase().includes(search)).sort((a, b) => a.path.localeCompare(b.path));
     }
 
     renderSuggestion(folder: TFolder, el: HTMLElement): void
@@ -66,6 +69,18 @@ export class RecordSettingsTab extends PluginSettingTab
         const draft = { ...this.plugin.settings };
         let userName = this.plugin.userName;
         return [
+            {
+                type: 'group', heading: 'Search folders', items: [
+                    this.folderSetting('Notes folder', 'Search this folder and its subfolders for subjects and links. Leave blank to allow notes anywhere in the vault.', 'notes', draft.notesFolder, value =>
+                    {
+                        draft.notesFolder = value;
+                    }),
+                    this.folderSetting('Additional records folder', 'Read records from this folder and its subfolders as well as current and previous timer and status destinations. Set this if you keep records outside those destinations.', 'records', draft.recordSearchFolder, value =>
+                    {
+                        draft.recordSearchFolder = value;
+                    })
+                ]
+            },
             {
                 name: 'Date/time display format',
                 desc: 'Local time in history, running timers and interruption reminders. Use Moment tokens, for example YYYY-MM-DD HH:mm:ss or DD.MM.YYYY HH:mm.',
@@ -131,6 +146,22 @@ export class RecordSettingsTab extends PluginSettingTab
         ];
     }
 
+    private folderSetting(name: string, desc: string, placeholder: string, initial: string, change: (value: string) => void): SettingsRow
+    {
+        return {
+            name,
+            desc,
+            render: setting =>
+            {
+                setting.addText(text =>
+                {
+                    text.setPlaceholder(placeholder).setValue(initial).onChange(change);
+                    new FolderSuggest(this.plugin.app, text.inputEl, change);
+                });
+            }
+        };
+    }
+
     private recordSettings(kind: 'time' | 'status', draft: Settings): SettingsGroup
     {
         const isTimer = kind === 'time';
@@ -159,19 +190,7 @@ export class RecordSettingsTab extends PluginSettingTab
             type: 'group',
             heading: isTimer ? 'Timer' : 'Status',
             items: [
-                {
-                    name: 'Save in folder',
-                    desc: 'Folder path relative to the vault root. Choose an existing folder or type a new path. Timer and status records can share a folder.',
-                    render: setting =>
-                    {
-                        setting.addText(text =>
-                        {
-                            const setFolder = change(folderKey);
-                            text.setPlaceholder('records/track-record').setValue(draft[folderKey]).onChange(setFolder);
-                            new FolderSuggest(this.plugin.app, text.inputEl, setFolder);
-                        });
-                    }
-                },
+                this.folderSetting('Save in folder', 'Folder path relative to the vault root. Choose an existing folder or type a new path. Timer and status records can share a folder.', 'records/track-record', draft[folderKey], change(folderKey)),
                 {
                     name: 'Identify by tag',
                     desc: 'Obsidian tag in the tags property. A slash creates a nested tag. A leading # is optional.',

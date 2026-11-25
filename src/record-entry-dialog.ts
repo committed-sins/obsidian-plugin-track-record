@@ -15,7 +15,7 @@ class NoteLinkPicker extends FuzzySuggestModal<TFile>
 
     getItems(): TFile[]
     {
-        return this.plugin.app.vault.getMarkdownFiles().filter(file => (!this.subjectsOnly || this.plugin.records.isSubject(file)) && !this.excluded.has(file.path));
+        return this.plugin.records.noteFiles(this.subjectsOnly).filter(file => !this.excluded.has(file.path));
     }
 
     getItemText(file: TFile): string

@@ -62,7 +62,9 @@ Devices create independent records. Overlaps are flagged rather than merged; tot
 
 Subject relationships come from wikilinks. Native link updates remain Obsidian's responsibility. Duplicate source IDs known to the metadata cache block recording. Retained profiles in plugin settings must be kept/synchronized if older records use customized tags or property names. The current-user setting stays local; enter the same name on your other devices. Vault file events refresh the timer list after a short debounce; clock ticks do not rescan files. Large-vault and live mobile behavior remain unverified.
 
-Track Record lists Markdown files for the note picker and checks cached metadata across the vault to find tagged records outside their configured folders and detect duplicate subject IDs. It reads record contents only for candidate files identified by their tags or folders, including retained profiles.
+Under **Search folders**, set **Notes folder** to limit subject selection, Markdown link suggestions and subject ID checks to that folder and its subfolders. Leave it blank to allow notes anywhere in the vault. History scans the current and retained Timer and Status folders, plus the optional **Additional records folder**. The normal history scan reads the records folders and uses Obsidian's metadata cache to resolve links. Legacy records with saved subject IDs also look up those IDs in the Notes scope.
+
+When upgrading from 0.1.8, include any records kept outside their current or previous destinations in **Additional records folder** before starting a new timer. For example, use `records` if you keep records in several of its subfolders. If Track Record knows of a still-present, previously observed open timer outside the scope, history reports the path so you can include that folder and review the timer.
 
 ## Build and test deployment
 

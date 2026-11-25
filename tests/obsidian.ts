@@ -75,7 +75,7 @@ export class TFile
 }
 export class TFolder
 {
-    constructor(public path: string)
+    constructor(public path: string, public children: (TFile | TFolder)[] = [])
     {
     }
 }
